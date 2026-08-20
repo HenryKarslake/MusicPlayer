@@ -1769,17 +1769,9 @@
 
 
     try {
-      console.log('Trying to play:', {
-        title: track.title,
-        artist: track.artist,
-        url: track.url,
-        src: media.src,
-        canPlayMP3: media.canPlayType('audio/mpeg')
-      });
-      
-      media.onerror = () => {
-        console.error('MEDIA ERROR:', media.error);
-      };
+      console.log("TRACK:", track);
+      console.log("TRACK URL:", track.url);
+      console.log("MEDIA SRC:", media.src);
       await media.play();
 
     } catch (_) {
