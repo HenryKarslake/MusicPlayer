@@ -205,6 +205,28 @@
             <h1>Find a good queue.</h1>
             <p>Public playlists are open for anyone to browse. Private ones stay locked until their password is entered.</p>
           </div>
+          <div class="toolbar">
+
+            <label
+                class="search"
+                aria-label="Search playlists"
+            >
+                ⌕
+                <input
+                id="playlistSearch"
+                autocomplete="off"
+                placeholder="Search playlists"
+                >
+            </label>
+
+            <button
+                class="secondary"
+                id="openPrivateButton"
+            >
+                Open Private
+            </button>
+
+          </div>
           <div id="playlistRoot"></div>
         </section>
       </div>
@@ -236,6 +258,16 @@
       <label class="field">Playlist name<input name="name" maxlength="70" required placeholder="e.g. Late-night drives"></label>
       <label class="field">Description <span style="font-weight:400;color:var(--muted)">(optional)</span><textarea name="description" maxlength="180" placeholder="A short note for listeners"></textarea></label>
       <label class="field">Playlist password<input name="password" type="password" minlength="4" required placeholder="At least 4 characters"></label>
+      <label class="field">
+        Songs to add to playlist you are creating
+
+        <select
+            id="createPlaylistSongs"
+            name="songs"
+            multiple
+            size="8"
+        ></select>
+        </label>
       <label class="check"><input name="isPrivate" type="checkbox"><span><strong>Make this private</strong><br>It will not show its songs until the password is entered.</span></label>
       <div class="modal-actions"><button type="button" class="secondary" data-close-dialog="playlistDialog">Cancel</button><button class="primary" type="submit">Create playlist</button></div>
       <p class="modal-note">This site never saves playlist changes in your browser. Shared changes need the playlist API configured in the script.</p>
@@ -247,6 +279,14 @@
       <h2>Add to playlist</h2>
       <p id="addSongName">Choose a playlist for this song.</p>
       <label class="field">Playlist<select id="playlistSelect" name="playlistId" required></select></label>
+      <label class="field">
+        Songs to add
+        <select
+            id="editPlaylistSongs"
+            multiple
+            size="10"
+        ></select>
+      </label>
       <label class="field">Playlist password<input name="password" type="password" required placeholder="The playlist's edit password"></label>
       <div class="modal-actions"><button type="button" class="secondary" data-close-dialog="addToPlaylistDialog">Cancel</button><button class="primary" type="submit">Add song</button></div>
     </form>
@@ -268,6 +308,97 @@
       <label class="field">Song name<input name="song" maxlength="120" required placeholder="What should be added?"></label>
       <label class="field">Artist <span style="font-weight:400;color:var(--muted)">(optional)</span><input name="artist" maxlength="120" placeholder="If you know it"></label>
       <div class="modal-actions"><button type="button" class="secondary" data-close-dialog="requestDialog">Cancel</button><button class="primary" type="submit">Send request</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="editPlaylistDialog">
+    <form id="editPlaylistForm" class="modal">
+
+        <h2>Edit playlist</h2>
+
+        <p id="editPlaylistName">
+        Enter the playlist password to edit it.
+        </p>
+
+        <label class="field">
+        Password
+        <input
+            name="password"
+            type="password"
+            required
+            autofocus
+        >
+        </label>
+
+        <label class="field">
+            Songs to add
+            <select
+                id="editPlaylistSongs"
+                multiple
+                size="10"
+            ></select>
+        </label>
+
+        <div class="modal-actions">
+
+        <button
+            type="button"
+            class="secondary"
+            data-close-dialog="editPlaylistDialog"
+        >
+            Cancel
+        </button>
+
+        <button
+            class="primary"
+            type="submit"
+        >
+            Continue
+        </button>
+
+        </div>
+
+    </form>
+  </dialog>
+
+  <dialog id="openPrivateDialog">
+    <form id="openPrivateForm" class="modal">
+
+        <h2>Open private playlist</h2>
+
+        <p>
+        Enter a playlist password to find every playlist using it.
+        </p>
+
+        <label class="field">
+        Password
+        <input
+            name="password"
+            type="password"
+            required
+            autofocus
+        >
+        </label>
+
+        <div class="modal-actions">
+
+        <button
+            type="button"
+            class="secondary"
+            data-close-dialog="openPrivateDialog"
+        >
+            Cancel
+        </button>
+
+        <button
+            class="primary"
+            type="submit"
+        >
+            Find playlists
+        </button>
+
+        </div>
+
     </form>
   </dialog>
 
@@ -336,9 +467,9 @@
     openPlaylist: null,
     pendingTrackId: null,
     pendingPlaylistId: null,
+    pendingEditPlaylistId: null,
     currentArtist: null
   };
-
 
   /*
     ============================================================
@@ -499,6 +630,9 @@
         typeof item.password === 'string'
           ? item.password
           : '',
+
+      pinValue:
+        String(item.pinValue || 'none'),
 
       songs,
 
@@ -854,6 +988,9 @@
           password:
             playlist.password || '',
 
+          pinValue:
+            playlist.pinValue || 'none',
+
           songs:
             playlist.songs
         })
@@ -1188,24 +1325,26 @@
     ============================================================
   */
 
-  function playlistSongFiles(
-    playlist
-  ) {
+  function playlistSongFiles(playlist) {
 
-    return playlist.songs
-      .map(
-        (song) =>
-          typeof song === 'string'
-            ? song
-            : (
-                song.file ||
-                song.filename ||
-                song.name
-              )
-      )
-      .filter(Boolean);
+  // pinValue "1" = automatic All Songs playlist
+  if (playlist.pinValue === '1') {
+    return state.tracks.map(track => track.file);
   }
 
+  return playlist.songs
+    .map(
+      (song) =>
+        typeof song === 'string'
+          ? song
+          : (
+              song.file ||
+              song.filename ||
+              song.name
+            )
+    )
+    .filter(Boolean);
+}
 
   function playlistTracks(
     playlist
@@ -1280,12 +1419,28 @@
           </div>
 
           <div class="playlist-tools">
+
             <button
-              class="secondary"
-              data-action="back-playlists"
+                class="secondary"
+                data-action="back-playlists"
             >
-              ← All playlists
+                ← All playlists
             </button>
+
+            ${
+              playlist.pinValue !== '1'
+                ? `
+                    <button
+                      class="secondary"
+                      data-action="edit-playlist"
+                      data-playlist-id="${escapeHTML(playlist.id)}"
+                    >
+                      Edit
+                    </button>
+                  `
+                  : ''
+            }
+
           </div>
 
         </div>
@@ -1340,6 +1495,24 @@
       return;
     }
 
+    const searchInput =
+            document.querySelector(
+                '#playlistSearch'
+            );
+
+    const searchTerm =
+    searchInput
+        ? searchInput.value.trim().toLowerCase()
+        : '';
+
+    const visiblePlaylists =
+    state.playlists.filter(
+        playlist =>
+        !searchTerm ||
+        `${playlist.name} ${playlist.description}`
+            .toLowerCase()
+            .includes(searchTerm)
+    );
 
     /*
       PLAYLIST CARDS
@@ -1362,7 +1535,7 @@
               return `
                 <button
                   class="playlist-card"
-                  data-action="open-playlist"
+                  data-action="open-matched-playlist"
                   data-playlist-id="${escapeHTML(playlist.id)}"
                 >
 
@@ -1736,6 +1909,43 @@
         return;
       }
 
+      if (action === 'edit-playlist') {
+
+        const playlist =
+            state.playlists.find(
+                item =>
+                item.id ===
+                button.dataset.playlistId
+            );
+
+        if (!playlist) {
+            notify('Playlist not found.', true);
+            return;
+        }
+
+        if (playlist.pinValue === '1') {
+            notify(
+            'The All Songs playlist cannot be edited.',
+            true
+                );
+            return;
+        }
+
+        state.pendingEditPlaylistId =
+            playlist.id;
+
+        $('#editPlaylistName').textContent =
+            `Enter the password for “${playlist.name}”.`;
+
+        $('#editPlaylistForm').reset();
+
+        openDialog(
+            'editPlaylistDialog'
+        );
+
+        return;
+        }
+
 
       const action =
         button.dataset.action;
@@ -1780,6 +1990,32 @@
       if (
         action === 'open-playlist'
       ) {
+      if (
+        action === 'open-matched-playlist'
+        ) {
+
+        const playlist =
+            state.playlists.find(
+            item =>
+                item.id ===
+                button.dataset.playlistId
+            );
+
+        if (!playlist) {
+            notify(
+            'Playlist not found.',
+            true
+            );
+            return;
+        }
+
+        state.openPlaylist =
+            playlist;
+
+        setView('playlists');
+
+        return;
+        }
 
         openPlaylist(
           button.dataset.playlistId
@@ -1849,7 +2085,7 @@
 
         $('#playlistSelect')
           .innerHTML =
-            state.playlists
+            visiblePlaylists
               .map(
                 (playlist) => `
                   <option
@@ -1869,6 +2105,12 @@
                 `
               )
               .join('');
+        
+        $('#playlistSearch')
+          .addEventListener(
+              'input',
+              renderPlaylists
+          );
 
 
         $('#addToPlaylistForm')
@@ -1896,8 +2138,17 @@
 
         $('#playlistForm').reset();
 
+        $('#createPlaylistSongs').innerHTML =
+        state.tracks
+            .map(track => `
+            <option value="${escapeHTML(track.file)}">
+                ${escapeHTML(track.title)} — ${escapeHTML(track.artist)}
+            </option>
+            `)
+            .join('');
+
         openDialog(
-          'playlistDialog'
+        'playlistDialog'
         );
       }
     );
@@ -1915,6 +2166,20 @@
         );
       }
     );
+
+
+  $('#openPrivateButton')
+    .addEventListener(
+      'click',
+      () => {
+
+        $('#openPrivateForm').reset();
+
+        openDialog(
+          'openPrivateDialog'
+        );
+      }
+  );
 
 
   /*
@@ -2155,6 +2420,11 @@
           'on';
 
 
+        const selectedSongs =
+          [...document.querySelector('#createPlaylistSongs').selectedOptions]
+            .map(option => option.value);
+
+
         if (!name) {
 
           notify(
@@ -2214,9 +2484,11 @@
 
           password,
 
-          songs: [],
+          songs: selectedSongs,
 
-          trackCount: 0
+          trackCount: selectedSongs.length,
+
+          pinValue: 'none'
         };
 
 
@@ -2346,6 +2618,14 @@
           return;
         }
 
+        if (playlist.pinValue === '1') {
+          notify(
+            'The All Songs playlist cannot be edited.',
+            true
+          );
+          return;
+        }
+
 
         /*
           Check playlist password.
@@ -2367,6 +2647,25 @@
           return;
         }
 
+
+        $('#editPlaylistSongs').innerHTML =
+            state.tracks
+                .filter(
+                track =>
+                    !playlist.songs.includes(
+                    track.file
+                    )
+                )
+                .map(track => `
+                <option value="${escapeHTML(track.file)}">
+                    ${escapeHTML(track.title)} — ${escapeHTML(track.artist)}
+                </option>
+                `)
+                .join('');
+
+        closeDialog(
+        'editPlaylistDialog'
+        );
 
         try {
 
@@ -2424,6 +2723,90 @@
           );
         }
       }
+    );
+
+
+  $('#editPlaylistForm')
+    .addEventListener(
+        'submit',
+        async (event) => {
+
+        event.preventDefault();
+
+        const form =
+            new FormData(
+            event.currentTarget
+            );
+
+        const password =
+            String(
+            form.get('password') || ''
+            );
+
+        const playlist =
+            state.playlists.find(
+            item =>
+                item.id ===
+                state.pendingEditPlaylistId
+            );
+
+        if (!playlist) {
+            notify(
+            'Playlist not found.',
+            true
+            );
+            return;
+        }
+
+        if (playlist.pinValue === '1') {
+            notify(
+            'The All Songs playlist cannot be edited.',
+            true
+            );
+            return;
+        }
+
+        if (
+            password !==
+            playlist.password
+        ) {
+            notify(
+            'Incorrect playlist password.',
+            true
+            );
+            return;
+        }
+
+        closeDialog(
+            'editPlaylistDialog'
+        );
+
+        /*
+            Populate the existing creation-style
+            song selector with the current playlist songs.
+        */
+
+        $('#addSongName').textContent =
+            `Edit “${playlist.name}” — choose songs to add.`;
+
+        $('#playlistSelect').innerHTML = `
+            <option value="${escapeHTML(playlist.id)}">
+            ${escapeHTML(playlist.name)}
+            </option>
+        `;
+
+        $('#addToPlaylistForm').reset();
+
+        $('#playlistSelect').value =
+            playlist.id;
+
+        state.pendingPlaylistId =
+            playlist.id;
+
+        openDialog(
+            'addToPlaylistDialog'
+        );
+        }
     );
 
 
@@ -2497,6 +2880,117 @@
       }
     );
 
+
+    $('#openPrivateForm')
+        .addEventListener(
+            'submit',
+            (event) => {
+
+            event.preventDefault();
+
+            const form =
+                new FormData(
+                event.currentTarget
+                );
+
+            const password =
+                String(
+                form.get('password') || ''
+                );
+
+            const matches =
+                state.playlists.filter(
+                playlist =>
+                    playlist.password ===
+                    password
+                );
+
+            closeDialog(
+                'openPrivateDialog'
+            );
+
+            if (!matches.length) {
+                notify(
+                'No playlists use that password.',
+                true
+                );
+                return;
+            }
+
+            const root =
+                $('#playlistRoot');
+
+            root.innerHTML = `
+                <div class="playlist-detail-head">
+
+                <div>
+                    <div class="eyebrow">
+                    Password matches
+                    </div>
+
+                    <h1>Your playlists</h1>
+
+                    <p class="status">
+                    ${matches.length}
+                    matching
+                    ${matches.length === 1
+                        ? 'playlist'
+                        : 'playlists'}
+                    </p>
+                </div>
+
+                <button
+                    class="secondary"
+                    data-action="back-playlists"
+                >
+                    ← All playlists
+                </button>
+
+                </div>
+
+                <div class="playlist-grid">
+
+                ${matches.map(playlist => `
+                    <button
+                    class="playlist-card"
+                    data-action="open-matched-playlist"
+                    data-playlist-id="${escapeHTML(playlist.id)}"
+                    >
+
+                    <div>
+
+                        <span class="badge">
+                        ${
+                            playlist.isPrivate
+                            ? '🔒 Private'
+                            : '◎ Public'
+                        }
+                        </span>
+
+                        <h3>
+                        ${escapeHTML(playlist.name)}
+                        </h3>
+
+                        <p>
+                        ${escapeHTML(
+                            playlist.description ||
+                            'A listener-made queue'
+                        )}
+                        </p>
+
+                    </div>
+
+                    <span class="badge">
+                        Open playlist
+                    </span>
+
+                    </button>
+                `).join('')}
+
+                </div>
+            `;
+            }
+        );
 
   /*
     ============================================================
