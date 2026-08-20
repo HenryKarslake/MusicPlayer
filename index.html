@@ -3750,98 +3750,132 @@
     SONG REQUEST
     ============================================================
   */
-
+  
   $('#requestForm')
     .addEventListener(
       'submit',
       async (event) => {
-
+  
         event.preventDefault();
-
-
+  
         if (
           !CONFIG.requestWebhookUrl.trim()
         ) {
-
+  
           notify(
             'Add your webhook URL to CONFIG.requestWebhookUrl first.',
             true
           );
-
+  
           return;
         }
-
-
+  
         const form =
           new FormData(
             event.currentTarget
           );
-
-
+  
+        const song =
+          String(
+            form.get('song') || ''
+          ).trim();
+  
+        const artist =
+          String(
+            form.get('artist') || ''
+          ).trim();
+  
+        if (!song) {
+  
+          notify(
+            'Enter a song name.',
+            true
+          );
+  
+          return;
+        }
+  
+        /*
+          Discord webhook payload.
+  
+          Discord needs the message inside
+          the "content" property.
+        */
+  
         const payload = {
-
-          type:
-            'music-request',
-
-          song:
-            String(
-              form.get('song') || ''
-            ).trim(),
-
-          artist:
-            String(
-              form.get('artist') || ''
-            ).trim() ||
-            null,
-
-          submittedAt:
-            new Date().toISOString()
+  
+          username:
+            'Music Player',
+  
+          content:
+            `🎵 **New Song Request**\n\n` +
+            `**Song:** ${song}\n` +
+            `**Artist:** ${artist || 'Unknown artist'}\n` +
+            `**Requested:** ${new Date().toLocaleString()}`
         };
-
-
+  
+  
         try {
-
+  
           const response =
             await fetch(
               CONFIG.requestWebhookUrl,
               {
                 method: 'POST',
-
+  
                 headers: {
                   'Content-Type':
                     'application/json'
                 },
-
+  
                 body:
-                  JSON.stringify(
-                    payload
-                  )
+                  JSON.stringify(payload)
               }
             );
-
-
+  
+  
           if (!response.ok) {
-
+  
+            let errorText = '';
+  
+            try {
+              errorText =
+                await response.text();
+            } catch (_) {}
+  
+            console.error(
+              'Discord webhook error:',
+              response.status,
+              errorText
+            );
+  
             throw new Error(
-              'The webhook did not accept the request.'
+              `Discord webhook returned ${response.status}.`
             );
           }
-
-
+  
+  
           closeDialog(
             'requestDialog'
           );
-
-
+  
+          $('#requestForm').reset();
+  
+  
           notify(
             'Song request sent — thank you!'
           );
-
-
+  
+  
         } catch (error) {
-
+  
+          console.error(
+            'Song request failed:',
+            error
+          );
+  
           notify(
-            `${error.message} The webhook must allow requests from this website.`,
+            error.message,
             true
           );
         }
