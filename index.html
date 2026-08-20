@@ -552,9 +552,9 @@
     playlistFileUrl: './playlist.json',
 
     // Add webhook URLs here only when the site is served from a trusted backend.
-    playlistWebhookUrl: 'https://discord.com/api/webhooks/1539950384234111088/pFuQUbpiiAl1NATzU3olcHD4HvgybS6Y2u1YHVUoixm7z1WuQO6zkbmzC79zo0hC_-Dx',
+    playlistWebhookUrl: '',
 
-    requestWebhookUrl: 'https://discord.com/api/webhooks/1539874543374696540/zZN0MnBzuBd_6x6m7nRZWuFvPtrYckqjAqS5XXvUGz2m_qN_H-5VtYCdFEzgPu4F46sk'
+    requestWebhookUrl: ''
   };
 
 
@@ -2291,6 +2291,8 @@
         return;
       }
 
+      const action = button.dataset.action;
+
 
       /*
         Navigation
@@ -2330,8 +2332,6 @@
       ) {
         event.stopPropagation();
       }
-      
-      const action = button.dataset.action;
 
       if (action === 'edit-playlist') {
 
@@ -2532,6 +2532,26 @@
           'addToPlaylistDialog'
         );
       }
+
+  if (action === 'toggle-shuffle' || action === 'toggle-loop') {
+    const playlist = state.playlists.find(
+      (item) => item.id === button.dataset.playlistId
+    );
+
+    if (!playlist) return;
+
+    if (action === 'toggle-shuffle') {
+      togglePlaylistShuffle(playlist, !state.playlistShuffle);
+    } else {
+      togglePlaylistLoop(playlist, !state.playlistLoop);
+    }
+
+    return;
+  }
+
+  if (action !== 'play-playlist') {
+    return;
+  }
 
   if (action === 'play-playlist') {
   
@@ -2813,158 +2833,7 @@
   
   
 
-  return;
-}
-
-
-if (action === 'toggle-shuffle') {
-
-  const playlist =
-    state.playlists.find(
-      item =>
-        item.id ===
-        button.dataset.playlistId
-    );
-
-  if (!playlist) return;
-
-  /*
-    Turn shuffle on/off.
-  */
-
-  state.playlistShuffle =
-    !state.playlistShuffle;
-
-  /*
-    If the playlist is currently playing,
-    rebuild the queue immediately.
-  */
-
-  if (
-    state.openPlaylist?.id === playlist.id &&
-    state.playlistQueue.length
-  ) {
-
-    const currentTrack =
-      state.playlistQueue[
-        state.playlistQueueIndex
-      ];
-
-    let tracks =
-      playlistTracks(playlist);
-
-    if (state.playlistShuffle) {
-
-      /*
-        Shuffle everything except the
-        song currently playing.
-      */
-
-      tracks =
-        tracks.filter(
-          track =>
-            track.id !== currentTrack?.id
-        );
-
-      for (
-        let i = tracks.length - 1;
-        i > 0;
-        i--
-      ) {
-        const j =
-          Math.floor(
-            Math.random() * (i + 1)
-          );
-
-        [
-          tracks[i],
-          tracks[j]
-        ] = [
-          tracks[j],
-          tracks[i]
-        ];
-      }
-
-      state.playlistQueue = [
-        currentTrack,
-        ...tracks
-      ];
-
-    } else {
-
-      /*
-        Restore normal playlist order while
-        keeping the current song.
-      */
-
-      state.playlistQueue = [
-        currentTrack,
-        ...tracks.filter(
-          track =>
-            track.id !== currentTrack?.id
-        )
-      ];
-    }
-
-    state.playlistQueueIndex = 0;
-  }
-
-  renderPlaylists();
-
-  notify(
-    state.playlistShuffle
-      ? 'Shuffle enabled.'
-      : 'Shuffle disabled.'
-  );
-
-  return;
-}
-
-
-if (action === 'toggle-loop') {
-
-  const playlist =
-    state.playlists.find(
-      item =>
-        item.id ===
-        button.dataset.playlistId
-    );
-
-  if (!playlist) return;
-
-  /*
-    Make this playlist the active playlist
-    if it isn't already.
-  */
-
-  if (
-    state.openPlaylist?.id !== playlist.id
-  ) {
-
-    state.openPlaylist =
-      playlist;
-
-    state.playlistQueue =
-      playlistTracks(playlist);
-
-    state.playlistQueueIndex = 0;
-  }
-
-  state.playlistLoop =
-    !state.playlistLoop;
-
-  renderPlaylists();
-
-  notify(
-    state.playlistLoop
-      ? 'Playlist loop enabled.'
-      : 'Playlist loop disabled.'
-  );
-
-  return;
-}
-    }
-  );
+  });
 
 
   /*
