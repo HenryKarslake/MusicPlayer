@@ -459,7 +459,11 @@
     pendingPlaylistId: null,
     pendingEditPlaylistId: null,
     currentArtist: null,
-    videoMode: false
+
+    playlistQueue: [],
+    playlistQueueIndex: 0,
+    playlistShuffle: false,
+    playlistLoop: false
   };
 
   /*
@@ -631,7 +635,10 @@
           : '',
 
       pinValue:
-        String(item.pinValue || 'none'),
+          item.pinValue === '1' ||
+          item.pinValue === '2'
+          ? item.pinValue
+          : 'none',
 
       songs,
 
@@ -1458,30 +1465,38 @@
             </p>
           </div>
 
-          <div class="playlist-tools">
+        <div class="playlist-tools">
 
-            <button
-                class="secondary"
-                data-action="back-playlists"
-            >
-                ← All playlists
-            </button>
+        <button
+            class="primary"
+            data-action="play-playlist"
+            data-playlist-id="${escapeHTML(playlist.id)}"
+        >
+            ▶ Play
+        </button>
 
-            ${
-              playlist.pinValue !== '1'
-                ? `
-                    <button
-                      class="secondary"
-                      data-action="edit-playlist"
-                      data-playlist-id="${escapeHTML(playlist.id)}"
-                    >
-                      Edit
-                    </button>
-                  `
-                  : ''
-            }
+        <button
+            class="secondary"
+            data-action="shuffle-playlist"
+            data-playlist-id="${escapeHTML(playlist.id)}"
+        >
+            🔀 Shuffle
+        </button>
 
-          </div>
+        <button
+            class="secondary"
+            data-action="loop-playlist"
+            data-playlist-id="${escapeHTML(playlist.id)}"
+        >
+            🔁 Loop
+        </button>
+
+        <button
+            class="secondary"
+            data-action="back-playlists"
+        >
+            ← All playlists
+        </button>
 
         </div>
 
@@ -1818,6 +1833,96 @@
     );
   }
 
+
+    /*
+    ============================================================
+    PLAYLIST PLAYBACK
+    ============================================================
+    */
+
+    function startPlaylist(playlist, shuffle = false) {
+
+    const tracks = playlistTracks(playlist);
+
+    if (!tracks.length) {
+        notify(
+        'This playlist has no songs available.',
+        true
+        );
+        return;
+    }
+
+    state.playlistQueue =
+        [...tracks];
+
+    state.playlistShuffle =
+        shuffle;
+
+    state.playlistLoop = false;
+
+    if (shuffle) {
+        for (
+        let i = state.playlistQueue.length - 1;
+        i > 0;
+        i--
+        ) {
+        const j =
+            Math.floor(
+            Math.random() * (i + 1)
+            );
+
+        [
+            state.playlistQueue[i],
+            state.playlistQueue[j]
+        ] = [
+            state.playlistQueue[j],
+            state.playlistQueue[i]
+        ];
+        }
+    }
+
+    state.playlistQueueIndex = 0;
+
+    playTrack(
+        state.playlistQueue[0].id
+    );
+    }
+
+
+    function playNextPlaylistSong() {
+
+    if (!state.playlistQueue.length) {
+        return;
+    }
+
+    if (
+        state.playlistQueueIndex >=
+        state.playlistQueue.length - 1
+    ) {
+
+        if (state.playlistLoop) {
+        state.playlistQueueIndex = 0;
+
+        playTrack(
+            state.playlistQueue[0].id
+        );
+
+        return;
+        }
+
+        state.playlistQueue = [];
+
+        return;
+    }
+
+    state.playlistQueueIndex++;
+
+    playTrack(
+        state.playlistQueue[
+        state.playlistQueueIndex
+        ].id
+    );
+    }
 
   /*
     ============================================================
@@ -2167,6 +2272,88 @@
           'addToPlaylistDialog'
         );
       }
+        if (action === 'play-playlist') {
+
+        const playlist =
+            state.playlists.find(
+            item =>
+                item.id ===
+                button.dataset.playlistId
+            );
+
+        if (!playlist) return;
+
+        startPlaylist(
+            playlist,
+            false
+        );
+
+        return;
+        }
+
+
+        if (action === 'shuffle-playlist') {
+
+        const playlist =
+            state.playlists.find(
+            item =>
+                item.id ===
+                button.dataset.playlistId
+            );
+
+        if (!playlist) return;
+
+        startPlaylist(
+            playlist,
+            true
+        );
+
+        return;
+        }
+
+
+        if (action === 'loop-playlist') {
+
+        const playlist =
+            state.playlists.find(
+            item =>
+                item.id ===
+                button.dataset.playlistId
+            );
+
+        if (!playlist) return;
+
+        /*
+            If this playlist isn't already playing,
+            start it first.
+        */
+
+        if (
+            !state.playlistQueue.length ||
+            state.openPlaylist?.id !== playlist.id
+        ) {
+
+            state.openPlaylist = playlist;
+
+            startPlaylist(
+            playlist,
+            false
+            );
+
+        } else {
+
+            state.playlistLoop =
+            !state.playlistLoop;
+
+            notify(
+            state.playlistLoop
+                ? 'Playlist loop enabled.'
+                : 'Playlist loop disabled.'
+            );
+        }
+
+        return;
+        }
     }
   );
 
@@ -2424,17 +2611,18 @@
   );
 
 
-  audio.addEventListener(
-    'loadedmetadata',
+    audio.addEventListener(
+    'ended',
     () => {
 
-      $('#duration')
-        .textContent =
-          formatTime(
-            audio.duration
-          );
+        if (state.playlistQueue.length) {
+        playNextPlaylistSong();
+        return;
+        }
+
+        playAdjacent(1);
     }
-  );
+    );
 
 
   audio.addEventListener(
