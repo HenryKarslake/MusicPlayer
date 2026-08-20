@@ -1659,71 +1659,117 @@
     /*
       PLAYLIST CARDS
     */
-
+    
     root.innerHTML = `
       <div class="playlist-grid">
-
+    
         ${state.playlists
-          .map(
-            (playlist) => {
-
-              const count =
-                playlist.trackCount ||
-                playlistSongFiles(
-                  playlist
-                ).length;
-
-
-              return `
-                <button
-                  class="primary"
-                  data-action="play-playlist"
-                  data-playlist-id="${escapeHTML(playlist.id)}"
-                >
-                  ${
-                    state.activePlaylistId === playlist.id &&
-                    !audio.paused
-                      ? 'Ⅱ Pause'
-                      : '▶ Play'
-                  }
-                </button>
-                
-                <label class="playlist-switch">
-                  <input
-                    type="checkbox"
-                    data-action="toggle-shuffle"
+          .map((playlist) => {
+    
+            const count =
+              playlist.trackCount ||
+              playlistSongFiles(playlist).length;
+    
+            return `
+              <div
+                class="playlist-card"
+                data-action="open-playlist"
+                data-playlist-id="${escapeHTML(playlist.id)}"
+              >
+    
+                <div>
+    
+                  <span
+                    class="badge${
+                      playlist.isPrivate
+                        ? ' private'
+                        : ''
+                    }"
+                  >
+                    ${
+                      playlist.isPrivate
+                        ? '🔒 Private'
+                        : '◎ Public'
+                    }
+                  </span>
+    
+                  <h3>
+                    ${escapeHTML(playlist.name)}
+                  </h3>
+    
+                  <p>
+                    ${escapeHTML(
+                      playlist.description ||
+                      'A listener-made queue'
+                    )}
+                  </p>
+    
+                </div>
+    
+                <div class="playlist-card-controls">
+    
+                  <span class="badge">
+                    ${count}
+                    ${
+                      count === 1
+                        ? 'song'
+                        : 'songs'
+                    }
+                  </span>
+    
+                  <button
+                    type="button"
+                    class="primary"
+                    data-action="play-playlist"
                     data-playlist-id="${escapeHTML(playlist.id)}"
+                  >
                     ${
                       state.activePlaylistId === playlist.id &&
-                      state.playlistShuffle
-                        ? 'checked'
-                        : ''
+                      !audio.paused
+                        ? 'Ⅱ Pause'
+                        : '▶ Play'
                     }
-                  >
-                  <span class="switch-track"></span>
-                  <span class="switch-label">Shuffle</span>
-                </label>
-                
-                <label class="playlist-switch">
-                  <input
-                    type="checkbox"
-                    data-action="toggle-loop"
-                    data-playlist-id="${escapeHTML(playlist.id)}"
-                    ${
-                      state.activePlaylistId === playlist.id &&
-                      state.playlistLoop
-                        ? 'checked'
-                        : ''
-                    }
-                  >
-                  <span class="switch-track"></span>
-                  <span class="switch-label">Loop</span>
-                </label>
-              `;
-            }
-          )
+                  </button>
+    
+                  <label class="playlist-switch">
+                    <input
+                      type="checkbox"
+                      data-action="toggle-shuffle"
+                      data-playlist-id="${escapeHTML(playlist.id)}"
+                      ${
+                        state.activePlaylistId === playlist.id &&
+                        state.playlistShuffle
+                          ? 'checked'
+                          : ''
+                      }
+                    >
+                    <span class="switch-track"></span>
+                    <span class="switch-label">Shuffle</span>
+                  </label>
+    
+                  <label class="playlist-switch">
+                    <input
+                      type="checkbox"
+                      data-action="toggle-loop"
+                      data-playlist-id="${escapeHTML(playlist.id)}"
+                      ${
+                        state.activePlaylistId === playlist.id &&
+                        state.playlistLoop
+                          ? 'checked'
+                          : ''
+                      }
+                    >
+                    <span class="switch-track"></span>
+                    <span class="switch-label">Loop</span>
+                  </label>
+    
+                </div>
+    
+              </div>
+            `;
+          })
           .join('')}
-
+    
       </div>
     `;
   }
