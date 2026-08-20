@@ -8,6 +8,19 @@
       "password": "",
       "pinValue": "1",
       "songs": []
+    },
+    {
+      "id": "creators-playlist-1787236698060",
+      "name": "Creators Playlist",
+      "description": "A playlist made by the creator (Henry) based on the songs he personally added and enjoys",
+      "isPrivate": false,
+      "password": "henry.karslake534",
+      "pinValue": "2",
+      "songs": [
+        "Chicago - Michael Jackson.mp3",
+        "Deja Vu - Eminem.mp3",
+        "Without Me - Eminem.mp3"
+      ]
     }
   ]
 }
