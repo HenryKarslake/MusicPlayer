@@ -130,6 +130,7 @@
     .toast.visible { opacity: 1; transform: none; }
     .toast.error { border-color: rgba(255,134,134,.5); }
     .hidden { display: none !important; }
+    #video:not([hidden]) { position: fixed; right: 20px; bottom: 106px; z-index: 19; width: min(420px, calc(100vw - 40px)); max-height: 55vh; border: 1px solid var(--line); border-radius: 12px; background: #000; box-shadow: var(--shadow); }
     @media (max-width: 760px) {
       .topbar { padding: 14px 17px; }
       .top-actions .secondary { display: none; }
@@ -246,9 +247,10 @@
       </div>
       <div class="seek-row"><span id="elapsed">0:00</span><input id="seek" type="range" min="0" max="1000" value="0" aria-label="Playback position"><span id="duration">0:00</span></div>
     </div>
-    <div class="player-right"><span>Volume</span><input id="volume" type="range" min="0" max="100" value="80" aria-label="Volume"></div>
+    <div class="player-right"><button class="secondary hidden" id="switchVideoButton" type="button">Switch to video</button><span>Volume</span><input id="volume" type="range" min="0" max="100" value="80" aria-label="Volume"></div>
   </footer>
   <audio id="audio" preload="metadata"></audio>
+  <video id="video" preload="metadata" hidden></video>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <dialog id="playlistDialog">
@@ -328,15 +330,6 @@
             required
             autofocus
         >
-        </label>
-
-        <label class="field">
-            Songs to add
-            <select
-                id="editPlaylistSongs"
-                multiple
-                size="10"
-            ></select>
         </label>
 
         <div class="modal-actions">
@@ -444,13 +437,10 @@
     musicManifestUrl: './Music/music.json',
     playlistFileUrl: './playlist.json',
 
-    // Discord webhook used to receive playlist JSON.
-    playlistWebhookUrl:
-      'https://discord.com/api/webhooks/1539950384234111088/pFuQUbpiiAl1NATzU3olcHD4HvgybS6Y2u1YHVUoixm7z1WuQO6zkbmzC79zo0hC_-Dx',
+    // Add webhook URLs here only when the site is served from a trusted backend.
+    playlistWebhookUrl: 'https://discord.com/api/webhooks/1539950384234111088/pFuQUbpiiAl1NATzU3olcHD4HvgybS6Y2u1YHVUoixm7z1WuQO6zkbmzC79zo0hC_-Dx',
 
-    // Discord webhook used for song requests.
-    requestWebhookUrl:
-      'https://discord.com/api/webhooks/1539874543374696540/zZN0MnBzuBd_6x6m7nRZWuFvPtrYckqjAqS5XXvUGz2m_qN_H-5VtYCdFEzgPu4F46sk'
+    requestWebhookUrl: 'https://discord.com/api/webhooks/1539874543374696540/zZN0MnBzuBd_6x6m7nRZWuFvPtrYckqjAqS5XXvUGz2m_qN_H-5VtYCdFEzgPu4F46sk'
   };
 
 
@@ -468,7 +458,8 @@
     pendingTrackId: null,
     pendingPlaylistId: null,
     pendingEditPlaylistId: null,
-    currentArtist: null
+    currentArtist: null,
+    videoMode: false
   };
 
   /*
@@ -509,6 +500,13 @@
       .split('/')
       .map(encodeURIComponent)
       .join('/');
+
+  const mediaKey = (file) =>
+    String(file || '')
+      .split('/')
+      .pop()
+      .replace(/\.(mp3|mp4|m4v|webm)$/i, '')
+      .toLowerCase();
 
 
   function notify(message, error = false) {
@@ -580,6 +578,7 @@
       file,
       title: details.title,
       artist: details.artist,
+      videoUrl: source.videoUrl || '',
       url:
         source.url ||
         `./Music/${encodeFilePath(file)}`
@@ -681,6 +680,26 @@
   }
 
 
+  async function loadSongsFromFolder(folder) {
+    const folderUrl = new URL(`${folder ? `Music/${folder}` : 'Music'}/`, document.baseURI);
+    const response = await fetch(folderUrl, { cache: 'no-store' });
+
+    if (!response.ok) {
+      throw new Error(`Could not read ${folderUrl.pathname}`);
+    }
+
+    const html = await response.text();
+    const extension = folder === 'MP4' ? /\.(mp4|m4v|webm)$/i : /\.mp3$/i;
+    return [...html.matchAll(/href=["']([^"']+)["']/gi)]
+      .map((match) => match[1])
+      .filter((file) => extension.test(file))
+      .map((file) => ({
+        file: decodeURIComponent(file.split('/').pop()),
+        url: new URL(file, folderUrl).href
+      }));
+  }
+
+
   function githubPagesRepository() {
     const hostParts =
       location.hostname
@@ -776,14 +795,20 @@
 
     } catch (_) {
       try {
-        rawTracks =
-          await loadSongsFromGitHubFolder();
-
-        source =
-          'GitHub Music folder';
-
+        rawTracks = await loadSongsFromFolder('MP3');
+        source = 'Music/MP3 folder';
       } catch (_) {
-        rawTracks = [];
+        try {
+          rawTracks = await loadSongsFromFolder('');
+          source = 'Music folder';
+        } catch (_) {
+          try {
+            rawTracks = await loadSongsFromGitHubFolder();
+            source = 'GitHub Music folder';
+          } catch (_) {
+            rawTracks = [];
+          }
+        }
       }
     }
 
@@ -791,8 +816,24 @@
       rawTracks
         .map(normalizeTrack)
         .filter(
-          (track) => track.file
+          (track) => track.file && /\.mp3$/i.test(track.file)
         );
+
+    let videoFiles = [];
+    try {
+      videoFiles = await loadSongsFromFolder('MP4');
+    } catch (_) {
+      try {
+        videoFiles = (await loadSongsFromFolder('')).filter((item) => /\.(mp4|m4v|webm)$/i.test(item.file));
+      } catch (_) {
+        videoFiles = [];
+      }
+    }
+
+    const videosByName = new Map(videoFiles.map((item) => [mediaKey(item.file), item.url]));
+    state.tracks.forEach((track) => {
+      track.videoUrl = videosByName.get(mediaKey(track.file)) || '';
+    });
 
     if (state.tracks.length) {
       setMusicStatus(
@@ -801,8 +842,7 @@
       );
     } else {
       setMusicStatus(
-        'No MP3s could be listed yet. ' +
-        'Add a Music/music.json file, or publish this from a public GitHub Pages repository.',
+        'No MP3s found. Add files to Music/MP3 (or Music) and run this page through a local server.',
         true
       );
     }
@@ -1674,12 +1714,15 @@
     if (!track) return;
 
 
+    const media = state.videoMode && track.videoUrl ? video : audio;
+    const otherMedia = media === audio ? video : audio;
+
     if (
       state.currentTrackId ===
         trackId &&
-      !audio.paused
+      !media.paused
     ) {
-      audio.pause();
+      media.pause();
       return;
     }
 
@@ -1692,8 +1735,11 @@
       state.currentTrackId =
         trackId;
 
-      audio.src =
-        track.url;
+      audio.pause();
+      video.pause();
+      media.src = state.videoMode && track.videoUrl ? track.videoUrl : track.url;
+      otherMedia.removeAttribute('src');
+      video.hidden = !state.videoMode;
 
       $('#nowTitle')
         .textContent =
@@ -1702,12 +1748,14 @@
       $('#nowArtist')
         .textContent =
         track.artist;
+
+      updateVideoButton();
     }
 
 
     try {
 
-      await audio.play();
+      await media.play();
 
     } catch (_) {
 
@@ -1726,6 +1774,15 @@
         state.currentArtist
       );
     }
+  }
+
+
+  function updateVideoButton() {
+    const button = $('#switchVideoButton');
+    const track = getTrack(state.currentTrackId);
+    const available = Boolean(track?.videoUrl);
+    button.classList.toggle('hidden', !available);
+    button.textContent = state.videoMode ? 'Switch to audio' : 'Switch to video';
   }
 
 
@@ -1909,6 +1966,8 @@
         return;
       }
 
+      const action = button.dataset.action;
+
       if (action === 'edit-playlist') {
 
         const playlist =
@@ -1944,11 +2003,7 @@
         );
 
         return;
-        }
-
-
-      const action =
-        button.dataset.action;
+      }
 
 
       /*
@@ -1987,12 +2042,12 @@
         Playlist
       */
 
-      if (
-        action === 'open-playlist'
-      ) {
-      if (
-        action === 'open-matched-playlist'
-        ) {
+      if (action === 'open-playlist') {
+        openPlaylist(button.dataset.playlistId);
+        return;
+      }
+
+      if (action === 'open-matched-playlist') {
 
         const playlist =
             state.playlists.find(
@@ -2009,17 +2064,8 @@
             return;
         }
 
-        state.openPlaylist =
-            playlist;
-
+        state.openPlaylist = playlist;
         setView('playlists');
-
-        return;
-        }
-
-        openPlaylist(
-          button.dataset.playlistId
-        );
 
         return;
       }
@@ -2085,7 +2131,7 @@
 
         $('#playlistSelect')
           .innerHTML =
-            visiblePlaylists
+            state.playlists
               .map(
                 (playlist) => `
                   <option
@@ -2247,6 +2293,7 @@
           Number(
             event.target.value
           ) / 100;
+        video.volume = audio.volume;
       }
     );
 
@@ -2256,14 +2303,10 @@
       'input',
       (event) => {
 
-        if (
-          Number.isFinite(
-            audio.duration
-          )
-        ) {
-
-          audio.currentTime =
-            audio.duration *
+        const media = state.videoMode ? video : audio;
+        if (Number.isFinite(media.duration)) {
+          media.currentTime =
+            media.duration *
             (
               Number(
                 event.target.value
@@ -2274,6 +2317,16 @@
     );
 
 
+  $('#switchVideoButton').addEventListener('click', () => {
+    const track = getTrack(state.currentTrackId);
+    if (!track?.videoUrl) return;
+    state.videoMode = !state.videoMode;
+    state.currentTrackId = null;
+    playTrack(track.id);
+    updateVideoButton();
+  });
+
+
   /*
     ============================================================
     AUDIO EVENTS
@@ -2281,6 +2334,7 @@
   */
 
   audio.volume = 0.8;
+  video.volume = 0.8;
 
 
   audio.addEventListener(
@@ -2296,6 +2350,37 @@
       renderBrowse();
     }
   );
+
+
+  video.addEventListener('play', () => {
+    $('#togglePlayButton').textContent = 'Ⅱ';
+    $('#togglePlayButton').title = 'Pause';
+    updateVideoButton();
+  });
+
+  video.addEventListener('pause', () => {
+    $('#togglePlayButton').textContent = '▶';
+    $('#togglePlayButton').title = 'Play';
+  });
+
+  video.addEventListener('timeupdate', () => {
+    $('#elapsed').textContent = formatTime(video.currentTime);
+    $('#seek').value = Number.isFinite(video.duration)
+      ? Math.round((video.currentTime / video.duration) * 1000)
+      : 0;
+  });
+
+  video.addEventListener('loadedmetadata', () => {
+    $('#duration').textContent = formatTime(video.duration);
+  });
+
+  video.addEventListener('ended', () => playAdjacent(1));
+
+  video.addEventListener('error', () => {
+    if (state.currentTrackId && state.videoMode) {
+      notify('The matching MP4 was not found or could not be played.', true);
+    }
+  });
 
 
   audio.addEventListener(
