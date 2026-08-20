@@ -1,5 +1,13 @@
 {
   "playlists": [
-
+    {
+      "id": "all-songs",
+      "name": "All Songs",
+      "description": "Every song in the music collection, for if your're not picky and just want to listen.",
+      "isPrivate": false,
+      "password": "",
+      "pinValue": "1",
+      "songs": []
+    }
   ]
 }
