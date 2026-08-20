@@ -272,385 +272,2349 @@
   </dialog>
 
   <script>
+  /*
+    ============================================================
+    CONFIGURATION
+    ============================================================
+
+    Folder structure:
+
+    index.html
+    playlist.json
+
+    Music/
+      music.json
+      Song - Artist.mp3
+      Another Song - Artist.mp3
+
+    playlist.json example:
+
+    {
+      "playlists": [
+        {
+          "id": "late-night-123456",
+          "name": "Late Night",
+          "description": "Songs for late nights",
+          "isPrivate": true,
+          "password": "mypassword",
+          "songs": [
+            "Song - Artist.mp3"
+          ]
+        }
+      ]
+    }
+
+    IMPORTANT:
+    Passwords are intentionally stored in plaintext because this
+    is being used as a simple static project. This is NOT secure.
+  */
+
+  const CONFIG = {
+    musicManifestUrl: './Music/music.json',
+    playlistFileUrl: './playlist.json',
+
+    // Discord webhook used to receive playlist JSON.
+    playlistWebhookUrl:
+      'https://discord.com/api/webhooks/1539950384234111088/pFuQUbpiiAl1NATzU3olcHD4HvgybS6Y2u1YHVUoixm7z1WuQO6zkbmzC79zo0hC_-Dx',
+
+    // Discord webhook used for song requests.
+    requestWebhookUrl:
+      'https://discord.com/api/webhooks/1539874543374696540/zZN0MnBzuBd_6x6m7nRZWuFvPtrYckqjAqS5XXvUGz2m_qN_H-5VtYCdFEzgPu4F46sk'
+  };
+
+
+  /*
+    ============================================================
+    STATE
+    ============================================================
+  */
+
+  const state = {
+    tracks: [],
+    playlists: [],
+    currentTrackId: null,
+    openPlaylist: null,
+    pendingTrackId: null,
+    pendingPlaylistId: null,
+    currentArtist: null
+  };
+
+
+  /*
+    ============================================================
+    DOM HELPERS
+    ============================================================
+  */
+
+  const audio = document.querySelector('#audio');
+
+  const $ = (selector) => document.querySelector(selector);
+
+  let toastTimer;
+
+
+  /*
+    ============================================================
+    GENERAL HELPERS
+    ============================================================
+  */
+
+  const escapeHTML = (value = '') =>
+    String(value).replace(
+      /[&<>'"]/g,
+      (char) =>
+        ({
+          '&': '&amp;',
+          '<': '&lt;',
+          '>': '&gt;',
+          "'": '&#039;',
+          '"': '&quot;'
+        })[char]
+    );
+
+
+  const encodeFilePath = (file) =>
+    String(file)
+      .split('/')
+      .map(encodeURIComponent)
+      .join('/');
+
+
+  function notify(message, error = false) {
+    const toast = $('#toast');
+
+    toast.textContent = message;
+    toast.classList.toggle('error', error);
+    toast.classList.add('visible');
+
+    clearTimeout(toastTimer);
+
+    toastTimer = setTimeout(() => {
+      toast.classList.remove('visible');
+    }, 3600);
+  }
+
+
+  function setMusicStatus(message, error = false) {
+    const status = $('#musicStatus');
+
+    status.textContent = message;
+    status.classList.toggle('error', error);
+  }
+
+
+  /*
+    ============================================================
+    SONG PARSING
+    ============================================================
+  */
+
+  function parseSongFilename(file, suppliedTitle, suppliedArtist) {
+    const clean = String(file || '')
+      .replace(/^.*\//, '')
+      .replace(/\.mp3$/i, '');
+
+    const parts = clean.split(/\s+-\s+/);
+
+    return {
+      title: suppliedTitle || parts.shift() || 'Untitled song',
+      artist:
+        suppliedArtist ||
+        parts.join(' - ') ||
+        'Unknown artist'
+    };
+  }
+
+
+  function normalizeTrack(item, index) {
+    const source =
+      typeof item === 'string'
+        ? { file: item }
+        : item || {};
+
+    const file =
+      source.file ||
+      source.filename ||
+      source.name ||
+      '';
+
+    const details = parseSongFilename(
+      file,
+      source.title,
+      source.artist
+    );
+
+    return {
+      id: `track-${index}`,
+      file,
+      title: details.title,
+      artist: details.artist,
+      url:
+        source.url ||
+        `./Music/${encodeFilePath(file)}`
+    };
+  }
+
+
+  /*
+    ============================================================
+    PLAYLIST PARSING
+    ============================================================
+  */
+
+  function normalizePlaylist(item) {
+    item = item || {};
+
+    const songs = Array.isArray(item.songs)
+      ? item.songs
+      : Array.isArray(item.tracks)
+        ? item.tracks
+        : [];
+
+    return {
+      id: String(
+        item.id ||
+        item.name ||
+        `playlist-${Date.now()}`
+      ),
+
+      name:
+        item.name ||
+        'Untitled playlist',
+
+      description:
+        item.description ||
+        '',
+
+      isPrivate:
+        Boolean(
+          item.isPrivate ??
+          item.private
+        ),
+
+      /*
+        Password is deliberately stored in plaintext.
+      */
+      password:
+        typeof item.password === 'string'
+          ? item.password
+          : '',
+
+      songs,
+
+      trackCount:
+        Number.isFinite(item.trackCount)
+          ? item.trackCount
+          : songs.length
+    };
+  }
+
+
+  /*
+    ============================================================
+    LOAD SONGS
+    ============================================================
+  */
+
+  async function loadSongsFromManifest() {
+    const response = await fetch(
+      CONFIG.musicManifestUrl,
+      {
+        cache: 'no-store'
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error('No music manifest');
+    }
+
+    const data = await response.json();
+
+    const songs =
+      Array.isArray(data)
+        ? data
+        : (
+            data.songs ||
+            data.tracks ||
+            []
+          );
+
+    return songs.filter(
+      (song) =>
+        typeof song === 'object' ||
+        /\.mp3$/i.test(song)
+    );
+  }
+
+
+  function githubPagesRepository() {
+    const hostParts =
+      location.hostname
+        .toLowerCase()
+        .split('.');
+
+    if (
+      hostParts.length !== 3 ||
+      hostParts[1] !== 'github' ||
+      hostParts[2] !== 'io'
+    ) {
+      return null;
+    }
+
+    const owner = hostParts[0];
+
+    const firstPathPart =
+      location.pathname
+        .split('/')
+        .filter(Boolean)[0];
+
+    return {
+      owner,
+      repo:
+        firstPathPart ||
+        `${owner}.github.io`
+    };
+  }
+
+
+  async function loadSongsFromGitHubFolder() {
+    const repo =
+      githubPagesRepository();
+
+    if (!repo) {
+      throw new Error(
+        'Not a public GitHub Pages URL'
+      );
+    }
+
+    const url =
+      `https://api.github.com/repos/` +
+      `${encodeURIComponent(repo.owner)}/` +
+      `${encodeURIComponent(repo.repo)}/` +
+      `contents/Music`;
+
+    const response = await fetch(url, {
+      headers: {
+        Accept:
+          'application/vnd.github+json'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        'GitHub could not list the Music folder'
+      );
+    }
+
+    const entries =
+      await response.json();
+
+    if (!Array.isArray(entries)) {
+      throw new Error(
+        'Music is not a folder'
+      );
+    }
+
+    return entries
+      .filter(
+        (entry) =>
+          entry.type === 'file' &&
+          /\.mp3$/i.test(entry.name)
+      )
+      .map(
+        (entry) => ({
+          file: entry.name
+        })
+      );
+  }
+
+
+  async function loadTracks() {
+    let rawTracks = [];
+    let source = '';
+
+    try {
+      rawTracks =
+        await loadSongsFromManifest();
+
+      source =
+        'Music manifest';
+
+    } catch (_) {
+      try {
+        rawTracks =
+          await loadSongsFromGitHubFolder();
+
+        source =
+          'GitHub Music folder';
+
+      } catch (_) {
+        rawTracks = [];
+      }
+    }
+
+    state.tracks =
+      rawTracks
+        .map(normalizeTrack)
+        .filter(
+          (track) => track.file
+        );
+
+    if (state.tracks.length) {
+      setMusicStatus(
+        `${state.tracks.length} downloaded ` +
+        `${state.tracks.length === 1 ? 'song' : 'songs'} found · ${source}`
+      );
+    } else {
+      setMusicStatus(
+        'No MP3s could be listed yet. ' +
+        'Add a Music/music.json file, or publish this from a public GitHub Pages repository.',
+        true
+      );
+    }
+  }
+
+
+  /*
+    ============================================================
+    PLAYLIST API
+    ============================================================
+
+    This replaces the missing playlistRequest().
+
+    Because this is a static site, playlistRequest() works with
+    playlist.json directly.
+
+    Supported actions:
+
+      playlistRequest('list')
+
+      playlistRequest('open', {
+        playlistId,
+        password
+      })
+  */
+
+  async function playlistRequest(action, data = {}) {
+
     /*
-      SETUP
-      1. Put MP3 files in ./Music. On a public GitHub Pages repository this page
-         automatically lists direct MP3 files in that folder using GitHub's public API.
-         For custom domains or local previews, add ./Music/music.json instead:
-         { "songs": ["Song title - Artist.mp3", "Another song - Artist.mp3"] }
-
-      2. ./playlist.json is read for public playlists. Example:
-         { "playlists": [{ "id": "late-nights", "name": "Late Nights",
-             "description": "", "isPrivate": false,
-             "songs": ["Song title - Artist.mp3"] }] }
-
-      3. GitHub Pages cannot write files. To create, edit, or privately unlock
-         shared playlists, deploy a tiny API/serverless function and paste its URL below.
-         It receives JSON POST bodies such as { action: "create" | "add-song" |
-         "open" | "list", ... }. It must save the shared playlist.json/database and
-         hash passwords server-side. Do not place a GitHub token in this HTML.
+      LIST PLAYLISTS
     */
-    const CONFIG = {
-      musicManifestUrl: './Music/music.json',
-      playlistFileUrl: './playlist.json',
-      playlistApiUrl: '', // e.g. 'https://your-worker.example.workers.dev/playlists'
-      requestWebhookUrl: 'https://discord.com/api/webhooks/1539874543374696540/zZN0MnBzuBd_6x6m7nRZWuFvPtrYckqjAqS5XXvUGz2m_qN_H-5VtYCdFEzgPu4F46sk' // Paste your webhook URL here.
+
+    if (action === 'list') {
+      const response =
+        await fetch(
+          CONFIG.playlistFileUrl,
+          {
+            cache: 'no-store'
+          }
+        );
+
+      if (!response.ok) {
+        throw new Error(
+          'Could not load playlist.json'
+        );
+      }
+
+      const json =
+        await response.json();
+
+      const playlists =
+        Array.isArray(json)
+          ? json
+          : (
+              json.playlists ||
+              []
+            );
+
+      return {
+        playlists:
+          playlists.map(normalizePlaylist)
+      };
+    }
+
+
+    /*
+      OPEN PRIVATE PLAYLIST
+    */
+
+    if (action === 'open') {
+
+      const response =
+        await fetch(
+          CONFIG.playlistFileUrl,
+          {
+            cache: 'no-store'
+          }
+        );
+
+      if (!response.ok) {
+        throw new Error(
+          'Could not load playlist.json'
+        );
+      }
+
+      const json =
+        await response.json();
+
+      const playlists =
+        Array.isArray(json)
+          ? json
+          : (
+              json.playlists ||
+              []
+            );
+
+      const playlist =
+        playlists
+          .map(normalizePlaylist)
+          .find(
+            (item) =>
+              item.id ===
+              String(data.playlistId)
+          );
+
+      if (!playlist) {
+        throw new Error(
+          'Playlist not found.'
+        );
+      }
+
+      /*
+        Public playlists do not need a password.
+      */
+
+      if (!playlist.isPrivate) {
+        return {
+          playlist
+        };
+      }
+
+      /*
+        Private playlist password check.
+      */
+
+      if (
+        String(data.password || '') !==
+        String(playlist.password || '')
+      ) {
+        throw new Error(
+          'Incorrect playlist password.'
+        );
+      }
+
+      return {
+        playlist
+      };
+    }
+
+
+    throw new Error(
+      `Unknown playlist action: ${action}`
+    );
+  }
+
+
+  /*
+    ============================================================
+    SEND PLAYLIST JSON TO DISCORD
+    ============================================================
+  */
+
+  async function sendPlaylistToWebhook(
+    playlists,
+    action = 'playlist-update'
+  ) {
+
+    if (
+      !CONFIG.playlistWebhookUrl.trim()
+    ) {
+      throw new Error(
+        'Playlist webhook URL is not configured.'
+      );
+    }
+
+
+    /*
+      Keep the password in playlist.json.
+
+      This is intentionally plaintext.
+    */
+
+    const cleanPlaylists =
+      playlists.map(
+        (playlist) => ({
+          id: playlist.id,
+          name: playlist.name,
+          description:
+            playlist.description,
+          isPrivate:
+            playlist.isPrivate,
+
+          password:
+            playlist.password || '',
+
+          songs:
+            playlist.songs
+        })
+      );
+
+
+    const playlistJSON =
+      JSON.stringify(
+        {
+          playlists:
+            cleanPlaylists
+        },
+        null,
+        2
+      );
+
+
+    const payload = {
+      username:
+        'Music Player',
+
+      content:
+        `**Playlist ${action}**\n` +
+        `Copy the JSON below into ` +
+        `\`playlist.json\`:\n` +
+        '```json\n' +
+        playlistJSON +
+        '\n```'
     };
 
-    const state = {
-      tracks: [], playlists: [], currentTrackId: null, openPlaylist: null,
-      pendingTrackId: null, pendingPlaylistId: null, currentArtist: null
+
+    const response =
+      await fetch(
+        CONFIG.playlistWebhookUrl,
+        {
+          method: 'POST',
+
+          headers: {
+            'Content-Type':
+              'application/json'
+          },
+
+          body:
+            JSON.stringify(payload)
+        }
+      );
+
+
+    if (!response.ok) {
+      throw new Error(
+        'The playlist webhook did not accept the update.'
+      );
+    }
+
+
+    return {
+      playlistJSON
     };
-    const audio = document.querySelector('#audio');
-    const $ = (selector) => document.querySelector(selector);
-    const escapeHTML = (value = '') => String(value).replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#039;', '"': '&quot;' })[char]);
-    const encodeFilePath = (file) => String(file).split('/').map(encodeURIComponent).join('/');
-    let toastTimer;
+  }
 
-    function notify(message, error = false) {
-      const toast = $('#toast');
-      toast.textContent = message;
-      toast.classList.toggle('error', error);
-      toast.classList.add('visible');
-      clearTimeout(toastTimer);
-      toastTimer = setTimeout(() => toast.classList.remove('visible'), 3600);
+
+  /*
+    ============================================================
+    LOAD PLAYLISTS
+    ============================================================
+  */
+
+  async function loadPlaylists() {
+
+    try {
+
+      /*
+        No playlistApiUrl.
+
+        Just load playlist.json.
+      */
+
+      const result =
+        await playlistRequest('list');
+
+      state.playlists =
+        result.playlists || [];
+
+    } catch (error) {
+
+      console.error(
+        'Playlist loading failed:',
+        error
+      );
+
+      state.playlists = [];
     }
+  }
 
-    function setMusicStatus(message, error = false) {
-      const status = $('#musicStatus');
-      status.textContent = message;
-      status.classList.toggle('error', error);
-    }
 
-    function parseSongFilename(file, suppliedTitle, suppliedArtist) {
-      const clean = String(file || '').replace(/^.*\//, '').replace(/\.mp3$/i, '');
-      const parts = clean.split(/\s+-\s+/);
-      return {
-        title: suppliedTitle || parts.shift() || 'Untitled song',
-        artist: suppliedArtist || parts.join(' - ') || 'Unknown artist'
-      };
-    }
+  /*
+    ============================================================
+    TRACK HELPERS
+    ============================================================
+  */
 
-    function normalizeTrack(item, index) {
-      const source = typeof item === 'string' ? { file: item } : item;
-      const file = source.file || source.filename || source.name || '';
-      const details = parseSongFilename(file, source.title, source.artist);
-      return {
-        id: `track-${index}`,
-        file,
-        title: details.title,
-        artist: details.artist,
-        url: source.url || `./Music/${encodeFilePath(file)}`
-      };
-    }
+  function getTrack(trackId) {
+    return state.tracks.find(
+      (track) =>
+        track.id === trackId
+    );
+  }
 
-    function normalizePlaylist(item) {
-      const songs = Array.isArray(item.songs) ? item.songs : (Array.isArray(item.tracks) ? item.tracks : []);
-      return {
-        id: String(item.id || item.name || crypto.randomUUID()),
-        name: item.name || 'Untitled playlist',
-        description: item.description || '',
-        isPrivate: Boolean(item.isPrivate ?? item.private),
-        songs,
-        trackCount: Number.isFinite(item.trackCount) ? item.trackCount : songs.length
-      };
-    }
 
-    function githubPagesRepository() {
-      const hostParts = location.hostname.toLowerCase().split('.');
-      if (hostParts.length !== 3 || hostParts[1] !== 'github' || hostParts[2] !== 'io') return null;
-      const owner = hostParts[0];
-      const firstPathPart = location.pathname.split('/').filter(Boolean)[0];
-      return { owner, repo: firstPathPart || `${owner}.github.io` };
-    }
+  function trackRow(track) {
 
-    async function loadSongsFromManifest() {
-      const response = await fetch(CONFIG.musicManifestUrl, { cache: 'no-store' });
-      if (!response.ok) throw new Error('No music manifest');
-      const data = await response.json();
-      const songs = Array.isArray(data) ? data : (data.songs || data.tracks || []);
-      return songs.filter((song) => typeof song === 'object' || /\.mp3$/i.test(song));
-    }
+    const playing =
+      state.currentTrackId ===
+      track.id
+        ? ' playing'
+        : '';
 
-    async function loadSongsFromGitHubFolder() {
-      const repo = githubPagesRepository();
-      if (!repo) throw new Error('Not a public GitHub Pages URL');
-      const url = `https://api.github.com/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/contents/Music`;
-      const response = await fetch(url, { headers: { Accept: 'application/vnd.github+json' } });
-      if (!response.ok) throw new Error('GitHub could not list the Music folder');
-      const entries = await response.json();
-      if (!Array.isArray(entries)) throw new Error('Music is not a folder');
-      return entries.filter((entry) => entry.type === 'file' && /\.mp3$/i.test(entry.name)).map((entry) => ({ file: entry.name }));
-    }
+    const playIcon =
+      state.currentTrackId ===
+        track.id &&
+      !audio.paused
+        ? 'Ⅱ'
+        : '▶';
 
-    async function loadTracks() {
-      let rawTracks = [];
-      let source = '';
-      try {
-        rawTracks = await loadSongsFromManifest();
-        source = 'Music manifest';
-      } catch (_) {
-        try {
-          rawTracks = await loadSongsFromGitHubFolder();
-          source = 'GitHub Music folder';
-        } catch (_) {
-          rawTracks = [];
-        }
+
+    return `
+      <div class="song-row${playing}">
+
+        <button
+          class="play-button"
+          data-action="play-track"
+          data-track-id="${escapeHTML(track.id)}"
+          aria-label="Play ${escapeHTML(track.title)}"
+        >
+          ${playIcon}
+        </button>
+
+        <div>
+          <div class="track-title">
+            ${escapeHTML(track.title)}
+          </div>
+
+          <div class="track-subtitle">
+            ${escapeHTML(track.file)}
+          </div>
+        </div>
+
+        <button
+          class="artist-song-button"
+          data-action="open-artist"
+          data-artist="${escapeHTML(track.artist)}"
+        >
+          ${escapeHTML(track.artist)}
+        </button>
+
+        <button
+          class="small-button"
+          data-action="add-song"
+          data-track-id="${escapeHTML(track.id)}"
+          title="Add to playlist"
+          aria-label="Add ${escapeHTML(track.title)} to playlist"
+        >
+          +
+        </button>
+
+      </div>
+    `;
+  }
+
+
+  function renderSongs(
+    target,
+    tracks,
+    emptyMessage
+  ) {
+
+    target.innerHTML =
+      tracks.length
+        ? tracks.map(trackRow).join('')
+        : `
+          <div class="empty">
+            ${escapeHTML(emptyMessage)}
+          </div>
+        `;
+  }
+
+
+  /*
+    ============================================================
+    ARTISTS
+    ============================================================
+  */
+
+  function renderArtists() {
+
+    const groups = new Map();
+
+    state.tracks.forEach(
+      (track) => {
+        groups.set(
+          track.artist,
+          (
+            groups.get(track.artist) ||
+            0
+          ) + 1
+        );
       }
-      state.tracks = rawTracks.map(normalizeTrack).filter((track) => track.file);
-      if (state.tracks.length) setMusicStatus(`${state.tracks.length} downloaded ${state.tracks.length === 1 ? 'song' : 'songs'} found · ${source}`);
-      else setMusicStatus('No MP3s could be listed yet. Add a Music/music.json file, or publish this from a public GitHub Pages repository.', true);
+    );
+
+
+    const artists =
+      [...groups.entries()]
+        .sort(
+          ([a], [b]) =>
+            a.localeCompare(b)
+        );
+
+
+    $('#artistList').innerHTML =
+      artists.length
+        ? artists
+            .map(
+              ([artist, count]) => `
+                <button
+                  class="artist-link"
+                  data-action="open-artist"
+                  data-artist="${escapeHTML(artist)}"
+                >
+                  <span>
+                    ${escapeHTML(artist)}
+                  </span>
+
+                  <span>
+                    ${count}
+                  </span>
+                </button>
+              `
+            )
+            .join('')
+        : `
+          <span class="status">
+            Artists will appear once songs are found.
+          </span>
+        `;
+  }
+
+
+  /*
+    ============================================================
+    BROWSE
+    ============================================================
+  */
+
+  function renderBrowse() {
+
+    const term =
+      $('#songSearch')
+        .value
+        .trim()
+        .toLowerCase();
+
+
+    const shown =
+      state.tracks.filter(
+        (track) =>
+          !term ||
+          `${track.title} ${track.artist}`
+            .toLowerCase()
+            .includes(term)
+      );
+
+
+    renderSongs(
+      $('#songList'),
+      shown,
+      term
+        ? 'No matching songs.'
+        : 'Your downloaded songs will show up here.'
+    );
+  }
+
+
+  /*
+    ============================================================
+    ARTIST PAGE
+    ============================================================
+  */
+
+  function showArtist(artist) {
+
+    state.currentArtist =
+      artist;
+
+
+    const songs =
+      state.tracks.filter(
+        (track) =>
+          track.artist === artist
+      );
+
+
+    $('#artistName')
+      .textContent = artist;
+
+    $('#artistAvatar')
+      .textContent =
+        artist
+          .slice(0, 1)
+          .toUpperCase();
+
+
+    $('#artistTrackCount')
+      .textContent =
+        `${songs.length} downloaded ` +
+        `${songs.length === 1 ? 'song' : 'songs'}`;
+
+
+    renderSongs(
+      $('#artistSongList'),
+      songs,
+      'No songs by this artist yet.'
+    );
+
+
+    setView('artist');
+  }
+
+
+  /*
+    ============================================================
+    PLAYLIST TRACK HELPERS
+    ============================================================
+  */
+
+  function playlistSongFiles(
+    playlist
+  ) {
+
+    return playlist.songs
+      .map(
+        (song) =>
+          typeof song === 'string'
+            ? song
+            : (
+                song.file ||
+                song.filename ||
+                song.name
+              )
+      )
+      .filter(Boolean);
+  }
+
+
+  function playlistTracks(
+    playlist
+  ) {
+
+    const songFiles =
+      new Set(
+        playlistSongFiles(playlist)
+      );
+
+
+    return state.tracks.filter(
+      (track) =>
+        songFiles.has(track.file)
+    );
+  }
+
+
+  /*
+    ============================================================
+    RENDER PLAYLISTS
+    ============================================================
+  */
+
+  function renderPlaylists() {
+
+    const root =
+      $('#playlistRoot');
+
+
+    /*
+      OPEN PLAYLIST
+    */
+
+    if (state.openPlaylist) {
+
+      const playlist =
+        state.openPlaylist;
+
+      const tracks =
+        playlistTracks(playlist);
+
+
+      root.innerHTML = `
+        <div class="playlist-detail-head">
+
+          <div>
+            <div class="eyebrow">
+              ${
+                playlist.isPrivate
+                  ? 'Private playlist'
+                  : 'Public playlist'
+              }
+            </div>
+
+            <h1>
+              ${escapeHTML(playlist.name)}
+            </h1>
+
+            <p class="status">
+              ${
+                escapeHTML(
+                  playlist.description ||
+                  `${playlist.trackCount} ${
+                    playlist.trackCount === 1
+                      ? 'song'
+                      : 'songs'
+                  }`
+                )
+              }
+            </p>
+          </div>
+
+          <div class="playlist-tools">
+            <button
+              class="secondary"
+              data-action="back-playlists"
+            >
+              ← All playlists
+            </button>
+          </div>
+
+        </div>
+
+        <div class="song-head">
+          <span></span>
+          <span>Song</span>
+          <span>Artist</span>
+          <span></span>
+        </div>
+
+        <div
+          class="song-list"
+          id="playlistSongList"
+        ></div>
+      `;
+
+
+      renderSongs(
+        $('#playlistSongList'),
+        tracks,
+        playlist.trackCount
+          ? 'These tracks are not present in the Music folder yet.'
+          : 'This playlist is empty.'
+      );
+
+      return;
     }
 
-    async function playlistRequest(action, payload = {}) {
-      if (!CONFIG.playlistApiUrl.trim()) throw new Error('Shared playlist saving is not set up yet. Add your playlist API URL in CONFIG first.');
-      const response = await fetch(CONFIG.playlistApiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, ...payload })
-      });
-      let data = {};
-      try { data = await response.json(); } catch (_) { /* A JSON response is preferred. */ }
-      if (!response.ok) throw new Error(data.error || 'The playlist service did not accept that request.');
-      return data;
+
+    /*
+      NO PLAYLISTS
+    */
+
+    if (!state.playlists.length) {
+
+      root.innerHTML = `
+        <div
+          class="empty"
+          style="
+            border:1px solid var(--line);
+            border-radius:13px
+          "
+        >
+          No playlists yet.
+          Create the first one,
+          or add entries to
+          <code>playlist.json</code>.
+        </div>
+      `;
+
+      return;
     }
 
-    async function loadPlaylists() {
-      try {
-        let data;
-        if (CONFIG.playlistApiUrl.trim()) data = await playlistRequest('list');
-        else {
-          const response = await fetch(CONFIG.playlistFileUrl, { cache: 'no-store' });
-          if (!response.ok) throw new Error('No playlist.json file found');
-          data = await response.json();
-        }
-        const playlists = Array.isArray(data) ? data : (data.playlists || []);
-        state.playlists = playlists.map(normalizePlaylist);
-      } catch (_) {
-        state.playlists = [];
-      }
-    }
 
-    function getTrack(trackId) { return state.tracks.find((track) => track.id === trackId); }
-    function trackRow(track) {
-      const playing = state.currentTrackId === track.id ? ' playing' : '';
-      const playIcon = state.currentTrackId === track.id && !audio.paused ? 'Ⅱ' : '▶';
-      return `<div class="song-row${playing}">
-        <button class="play-button" data-action="play-track" data-track-id="${escapeHTML(track.id)}" aria-label="Play ${escapeHTML(track.title)}">${playIcon}</button>
-        <div><div class="track-title">${escapeHTML(track.title)}</div><div class="track-subtitle">${escapeHTML(track.file)}</div></div>
-        <button class="artist-song-button" data-action="open-artist" data-artist="${escapeHTML(track.artist)}">${escapeHTML(track.artist)}</button>
-        <button class="small-button" data-action="add-song" data-track-id="${escapeHTML(track.id)}" title="Add to playlist" aria-label="Add ${escapeHTML(track.title)} to playlist">+</button>
-      </div>`;
-    }
+    /*
+      PLAYLIST CARDS
+    */
 
-    function renderSongs(target, tracks, emptyMessage) {
-      target.innerHTML = tracks.length ? tracks.map(trackRow).join('') : `<div class="empty">${escapeHTML(emptyMessage)}</div>`;
-    }
+    root.innerHTML = `
+      <div class="playlist-grid">
 
-    function renderArtists() {
-      const groups = new Map();
-      state.tracks.forEach((track) => groups.set(track.artist, (groups.get(track.artist) || 0) + 1));
-      const artists = [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
-      $('#artistList').innerHTML = artists.length
-        ? artists.map(([artist, count]) => `<button class="artist-link" data-action="open-artist" data-artist="${escapeHTML(artist)}"><span>${escapeHTML(artist)}</span><span>${count}</span></button>`).join('')
-        : '<span class="status">Artists will appear once songs are found.</span>';
-    }
+        ${state.playlists
+          .map(
+            (playlist) => {
 
-    function renderBrowse() {
-      const term = $('#songSearch').value.trim().toLowerCase();
-      const shown = state.tracks.filter((track) => !term || `${track.title} ${track.artist}`.toLowerCase().includes(term));
-      renderSongs($('#songList'), shown, term ? 'No matching songs.' : 'Your downloaded songs will show up here.');
-    }
+              const count =
+                playlist.trackCount ||
+                playlistSongFiles(
+                  playlist
+                ).length;
 
-    function showArtist(artist) {
-      state.currentArtist = artist;
-      const songs = state.tracks.filter((track) => track.artist === artist);
-      $('#artistName').textContent = artist;
-      $('#artistAvatar').textContent = artist.slice(0, 1).toUpperCase();
-      $('#artistTrackCount').textContent = `${songs.length} downloaded ${songs.length === 1 ? 'song' : 'songs'}`;
-      renderSongs($('#artistSongList'), songs, 'No songs by this artist yet.');
-      setView('artist');
-    }
 
-    function playlistSongFiles(playlist) {
-      return playlist.songs.map((song) => typeof song === 'string' ? song : (song.file || song.filename || song.name)).filter(Boolean);
-    }
+              return `
+                <button
+                  class="playlist-card"
+                  data-action="open-playlist"
+                  data-playlist-id="${escapeHTML(playlist.id)}"
+                >
 
-    function playlistTracks(playlist) {
-      const songFiles = new Set(playlistSongFiles(playlist));
-      return state.tracks.filter((track) => songFiles.has(track.file));
-    }
+                  <div>
 
-    function renderPlaylists() {
-      const root = $('#playlistRoot');
-      if (state.openPlaylist) {
-        const playlist = state.openPlaylist;
-        const tracks = playlistTracks(playlist);
-        root.innerHTML = `<div class="playlist-detail-head">
-          <div><div class="eyebrow">${playlist.isPrivate ? 'Private playlist' : 'Public playlist'}</div><h1>${escapeHTML(playlist.name)}</h1><p class="status">${escapeHTML(playlist.description || `${playlist.trackCount} ${playlist.trackCount === 1 ? 'song' : 'songs'}`)}</p></div>
-          <div class="playlist-tools"><button class="secondary" data-action="back-playlists">← All playlists</button></div>
-        </div><div class="song-head"><span></span><span>Song</span><span>Artist</span><span></span></div><div class="song-list" id="playlistSongList"></div>`;
-        renderSongs($('#playlistSongList'), tracks, playlist.trackCount ? 'These tracks are not present in the Music folder yet.' : 'This playlist is empty.');
-        return;
-      }
-      if (!state.playlists.length) {
-        root.innerHTML = `<div class="empty" style="border:1px solid var(--line);border-radius:13px">No public playlists yet. Create the first one, or add entries to <code>playlist.json</code>.</div>`;
-        return;
-      }
-      root.innerHTML = `<div class="playlist-grid">${state.playlists.map((playlist) => {
-        const count = playlist.trackCount || playlistSongFiles(playlist).length;
-        return `<button class="playlist-card" data-action="open-playlist" data-playlist-id="${escapeHTML(playlist.id)}">
-          <div><span class="badge${playlist.isPrivate ? ' private' : ''}">${playlist.isPrivate ? '🔒 Private' : '◎ Public'}</span><h3>${escapeHTML(playlist.name)}</h3><p>${escapeHTML(playlist.description || 'A listener-made queue')}</p></div>
-          <span class="badge">${count} ${count === 1 ? 'song' : 'songs'} · Open</span>
-        </button>`;
-      }).join('')}</div>`;
-    }
+                    <span
+                      class="badge${
+                        playlist.isPrivate
+                          ? ' private'
+                          : ''
+                      }"
+                    >
+                      ${
+                        playlist.isPrivate
+                          ? '🔒 Private'
+                          : '◎ Public'
+                      }
+                    </span>
 
-    function setView(view) {
-      document.querySelectorAll('.view').forEach((section) => section.classList.toggle('active', section.id === `${view}View`));
-      document.querySelectorAll('[data-view-target]').forEach((button) => button.classList.toggle('active', button.dataset.viewTarget === view));
-      if (view === 'browse') renderBrowse();
-      if (view === 'playlists') renderPlaylists();
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
+                    <h3>
+                      ${escapeHTML(
+                        playlist.name
+                      )}
+                    </h3>
 
-    function formatTime(value) {
-      if (!Number.isFinite(value) || value < 0) return '0:00';
-      return `${Math.floor(value / 60)}:${String(Math.floor(value % 60)).padStart(2, '0')}`;
-    }
+                    <p>
+                      ${escapeHTML(
+                        playlist.description ||
+                        'A listener-made queue'
+                      )}
+                    </p>
 
-    async function playTrack(trackId) {
-      const track = getTrack(trackId);
-      if (!track) return;
-      if (state.currentTrackId === trackId && !audio.paused) { audio.pause(); return; }
-      if (state.currentTrackId !== trackId) {
-        state.currentTrackId = trackId;
-        audio.src = track.url;
-        $('#nowTitle').textContent = track.title;
-        $('#nowArtist').textContent = track.artist;
-      }
-      try { await audio.play(); } catch (_) { notify('That MP3 could not be played. Check its name and path in the Music folder.', true); }
+                  </div>
+
+                  <span class="badge">
+                    ${count}
+                    ${
+                      count === 1
+                        ? 'song'
+                        : 'songs'
+                    }
+                    · Open
+                  </span>
+
+                </button>
+              `;
+            }
+          )
+          .join('')}
+
+      </div>
+    `;
+  }
+
+
+  /*
+    ============================================================
+    VIEW SWITCHING
+    ============================================================
+  */
+
+  function setView(view) {
+
+    document
+      .querySelectorAll('.view')
+      .forEach(
+        (section) =>
+          section.classList.toggle(
+            'active',
+            section.id ===
+              `${view}View`
+          )
+      );
+
+
+    document
+      .querySelectorAll(
+        '[data-view-target]'
+      )
+      .forEach(
+        (button) =>
+          button.classList.toggle(
+            'active',
+            button.dataset.viewTarget ===
+              view
+          )
+      );
+
+
+    if (view === 'browse') {
       renderBrowse();
-      if (state.currentArtist) showArtist(state.currentArtist);
     }
 
-    function playAdjacent(direction) {
-      if (!state.tracks.length) return;
-      const currentIndex = Math.max(0, state.tracks.findIndex((track) => track.id === state.currentTrackId));
-      const nextIndex = (currentIndex + direction + state.tracks.length) % state.tracks.length;
-      playTrack(state.tracks[nextIndex].id);
+    if (view === 'playlists') {
+      renderPlaylists();
     }
 
-    function openDialog(id) { document.querySelector(`#${id}`).showModal(); }
-    function closeDialog(id) { document.querySelector(`#${id}`).close(); }
 
-    async function openPlaylist(playlistId) {
-      const playlist = state.playlists.find((item) => item.id === playlistId);
-      if (!playlist) return;
-      if (playlist.isPrivate) {
-        state.pendingPlaylistId = playlistId;
-        $('#unlockPlaylistName').textContent = `Enter the password for “${playlist.name}” to see it.`;
-        $('#unlockForm').reset();
-        openDialog('unlockDialog');
-      } else {
-        state.openPlaylist = playlist;
-        setView('playlists');
+    window.scrollTo({
+      top: 0,
+      behavior: 'smooth'
+    });
+  }
+
+
+  /*
+    ============================================================
+    AUDIO
+    ============================================================
+  */
+
+  function formatTime(value) {
+
+    if (
+      !Number.isFinite(value) ||
+      value < 0
+    ) {
+      return '0:00';
+    }
+
+
+    return (
+      `${Math.floor(value / 60)}:` +
+      `${String(
+        Math.floor(value % 60)
+      ).padStart(2, '0')}`
+    );
+  }
+
+
+  async function playTrack(trackId) {
+
+    const track =
+      getTrack(trackId);
+
+    if (!track) return;
+
+
+    if (
+      state.currentTrackId ===
+        trackId &&
+      !audio.paused
+    ) {
+      audio.pause();
+      return;
+    }
+
+
+    if (
+      state.currentTrackId !==
+      trackId
+    ) {
+
+      state.currentTrackId =
+        trackId;
+
+      audio.src =
+        track.url;
+
+      $('#nowTitle')
+        .textContent =
+        track.title;
+
+      $('#nowArtist')
+        .textContent =
+        track.artist;
+    }
+
+
+    try {
+
+      await audio.play();
+
+    } catch (_) {
+
+      notify(
+        'That MP3 could not be played. Check its name and path in the Music folder.',
+        true
+      );
+    }
+
+
+    renderBrowse();
+
+
+    if (state.currentArtist) {
+      showArtist(
+        state.currentArtist
+      );
+    }
+  }
+
+
+  function playAdjacent(direction) {
+
+    if (!state.tracks.length) {
+      return;
+    }
+
+
+    const currentIndex =
+      Math.max(
+        0,
+        state.tracks.findIndex(
+          (track) =>
+            track.id ===
+            state.currentTrackId
+        )
+      );
+
+
+    const nextIndex =
+      (
+        currentIndex +
+        direction +
+        state.tracks.length
+      ) %
+      state.tracks.length;
+
+
+    playTrack(
+      state.tracks[nextIndex].id
+    );
+  }
+
+
+  /*
+    ============================================================
+    DIALOGS
+    ============================================================
+  */
+
+  function openDialog(id) {
+    document
+      .querySelector(`#${id}`)
+      .showModal();
+  }
+
+
+  function closeDialog(id) {
+    document
+      .querySelector(`#${id}`)
+      .close();
+  }
+
+
+  /*
+    ============================================================
+    OPEN PLAYLIST
+    ============================================================
+  */
+
+  async function openPlaylist(
+    playlistId
+  ) {
+
+    const playlist =
+      state.playlists.find(
+        (item) =>
+          item.id === playlistId
+      );
+
+
+    if (!playlist) {
+      notify(
+        'Playlist not found.',
+        true
+      );
+      return;
+    }
+
+
+    /*
+      PUBLIC PLAYLIST
+    */
+
+    if (!playlist.isPrivate) {
+
+      state.openPlaylist =
+        playlist;
+
+      setView('playlists');
+
+      return;
+    }
+
+
+    /*
+      PRIVATE PLAYLIST
+    */
+
+    state.pendingPlaylistId =
+      playlistId;
+
+
+    $('#unlockPlaylistName')
+      .textContent =
+        `Enter the password for “${playlist.name}” to see it.`;
+
+
+    $('#unlockForm').reset();
+
+    openDialog(
+      'unlockDialog'
+    );
+  }
+
+
+  /*
+    ============================================================
+    RENDER EVERYTHING
+    ============================================================
+  */
+
+  function renderAll() {
+    renderArtists();
+    renderBrowse();
+    renderPlaylists();
+  }
+
+
+  /*
+    ============================================================
+    GLOBAL CLICK HANDLER
+    ============================================================
+  */
+
+  document.addEventListener(
+    'click',
+    (event) => {
+
+      const button =
+        event.target.closest(
+          'button'
+        );
+
+
+      if (!button) {
+        return;
+      }
+
+
+      /*
+        Navigation
+      */
+
+      if (
+        button.dataset.viewTarget
+      ) {
+
+        setView(
+          button.dataset.viewTarget
+        );
+
+        return;
+      }
+
+
+      /*
+        Close dialog
+      */
+
+      if (
+        button.dataset.closeDialog
+      ) {
+
+        closeDialog(
+          button.dataset.closeDialog
+        );
+
+        return;
+      }
+
+
+      const action =
+        button.dataset.action;
+
+
+      /*
+        Play song
+      */
+
+      if (
+        action === 'play-track'
+      ) {
+
+        playTrack(
+          button.dataset.trackId
+        );
+
+        return;
+      }
+
+
+      /*
+        Artist
+      */
+
+      if (
+        action === 'open-artist'
+      ) {
+
+        showArtist(
+          button.dataset.artist
+        );
+
+        return;
+      }
+
+
+      /*
+        Playlist
+      */
+
+      if (
+        action === 'open-playlist'
+      ) {
+
+        openPlaylist(
+          button.dataset.playlistId
+        );
+
+        return;
+      }
+
+
+      /*
+        Back to playlists
+      */
+
+      if (
+        action === 'back-playlists'
+      ) {
+
+        state.openPlaylist =
+          null;
+
+        renderPlaylists();
+
+        return;
+      }
+
+
+      /*
+        Add song
+      */
+
+      if (
+        action === 'add-song'
+      ) {
+
+        if (
+          !state.playlists.length
+        ) {
+
+          notify(
+            'Create a playlist first.',
+            true
+          );
+
+          return;
+        }
+
+
+        state.pendingTrackId =
+          button.dataset.trackId;
+
+
+        const track =
+          getTrack(
+            state.pendingTrackId
+          );
+
+
+        if (!track) {
+          return;
+        }
+
+
+        $('#addSongName')
+          .textContent =
+            `Add “${track.title}” to one of your playlists.`;
+
+
+        $('#playlistSelect')
+          .innerHTML =
+            state.playlists
+              .map(
+                (playlist) => `
+                  <option
+                    value="${escapeHTML(
+                      playlist.id
+                    )}"
+                  >
+                    ${escapeHTML(
+                      playlist.name
+                    )}
+                    ${
+                      playlist.isPrivate
+                        ? ' 🔒'
+                        : ''
+                    }
+                  </option>
+                `
+              )
+              .join('');
+
+
+        $('#addToPlaylistForm')
+          .reset();
+
+
+        openDialog(
+          'addToPlaylistDialog'
+        );
       }
     }
+  );
 
-    function renderAll() { renderArtists(); renderBrowse(); renderPlaylists(); }
 
-    document.addEventListener('click', (event) => {
-      const button = event.target.closest('button');
-      if (!button) return;
-      if (button.dataset.viewTarget) { setView(button.dataset.viewTarget); return; }
-      if (button.dataset.closeDialog) { closeDialog(button.dataset.closeDialog); return; }
-      const action = button.dataset.action;
-      if (action === 'play-track') playTrack(button.dataset.trackId);
-      if (action === 'open-artist') showArtist(button.dataset.artist);
-      if (action === 'open-playlist') openPlaylist(button.dataset.playlistId);
-      if (action === 'back-playlists') { state.openPlaylist = null; renderPlaylists(); }
-      if (action === 'add-song') {
-        if (!state.playlists.length) { notify('Create a playlist first.', true); return; }
-        state.pendingTrackId = button.dataset.trackId;
-        const track = getTrack(state.pendingTrackId);
-        $('#addSongName').textContent = `Add “${track.title}” to one of your playlists.`;
-        $('#playlistSelect').innerHTML = state.playlists.map((playlist) => `<option value="${escapeHTML(playlist.id)}">${escapeHTML(playlist.name)}${playlist.isPrivate ? ' 🔒' : ''}</option>`).join('');
-        $('#addToPlaylistForm').reset();
-        openDialog('addToPlaylistDialog');
+  /*
+    ============================================================
+    TOP BUTTONS
+    ============================================================
+  */
+
+  $('#createPlaylistButton')
+    .addEventListener(
+      'click',
+      () => {
+
+        $('#playlistForm').reset();
+
+        openDialog(
+          'playlistDialog'
+        );
       }
-    });
+    );
 
-    $('#createPlaylistButton').addEventListener('click', () => { $('#playlistForm').reset(); openDialog('playlistDialog'); });
-    $('#requestSongButton').addEventListener('click', () => { $('#requestForm').reset(); openDialog('requestDialog'); });
-    $('#songSearch').addEventListener('input', renderBrowse);
-    $('#togglePlayButton').addEventListener('click', () => state.currentTrackId ? playTrack(state.currentTrackId) : playTrack(state.tracks[0]?.id));
-    $('#previousButton').addEventListener('click', () => playAdjacent(-1));
-    $('#nextButton').addEventListener('click', () => playAdjacent(1));
-    $('#volume').addEventListener('input', (event) => { audio.volume = Number(event.target.value) / 100; });
-    $('#seek').addEventListener('input', (event) => { if (Number.isFinite(audio.duration)) audio.currentTime = audio.duration * (Number(event.target.value) / 1000); });
 
-    audio.volume = .8;
-    audio.addEventListener('play', () => { $('#togglePlayButton').textContent = 'Ⅱ'; $('#togglePlayButton').title = 'Pause'; renderBrowse(); });
-    audio.addEventListener('pause', () => { $('#togglePlayButton').textContent = '▶'; $('#togglePlayButton').title = 'Play'; renderBrowse(); });
-    audio.addEventListener('timeupdate', () => { $('#elapsed').textContent = formatTime(audio.currentTime); $('#seek').value = Number.isFinite(audio.duration) ? Math.round((audio.currentTime / audio.duration) * 1000) : 0; });
-    audio.addEventListener('loadedmetadata', () => { $('#duration').textContent = formatTime(audio.duration); });
-    audio.addEventListener('ended', () => playAdjacent(1));
-    audio.addEventListener('error', () => { if (state.currentTrackId) notify('The current MP3 was not found or could not be decoded.', true); });
+  $('#requestSongButton')
+    .addEventListener(
+      'click',
+      () => {
 
-    $('#playlistForm').addEventListener('submit', async (event) => {
-      event.preventDefault();
-      const form = new FormData(event.currentTarget);
-      try {
-        const result = await playlistRequest('create', {
-          name: form.get('name').trim(), description: form.get('description').trim(),
-          password: form.get('password'), isPrivate: form.get('isPrivate') === 'on'
-        });
-        if (result.playlist) state.playlists.push(normalizePlaylist(result.playlist));
-        else await loadPlaylists();
-        closeDialog('playlistDialog'); renderPlaylists(); notify('Playlist created for everyone to see.');
-      } catch (error) { notify(error.message, true); }
-    });
+        $('#requestForm').reset();
 
-    $('#addToPlaylistForm').addEventListener('submit', async (event) => {
-      event.preventDefault();
-      const form = new FormData(event.currentTarget);
-      const track = getTrack(state.pendingTrackId);
-      if (!track) return;
-      try {
-        const result = await playlistRequest('add-song', { playlistId: form.get('playlistId'), password: form.get('password'), song: track.file });
-        if (result.playlist) {
-          const updated = normalizePlaylist(result.playlist);
-          state.playlists = state.playlists.map((playlist) => playlist.id === updated.id ? updated : playlist);
-        } else await loadPlaylists();
-        closeDialog('addToPlaylistDialog'); renderPlaylists(); notify('Song added to the shared playlist.');
-      } catch (error) { notify(error.message, true); }
-    });
+        openDialog(
+          'requestDialog'
+        );
+      }
+    );
 
-    $('#unlockForm').addEventListener('submit', async (event) => {
-      event.preventDefault();
-      try {
-        const form = new FormData(event.currentTarget);
-        const result = await playlistRequest('open', { playlistId: state.pendingPlaylistId, password: form.get('password') });
-        const playlist = normalizePlaylist(result.playlist || result);
-        state.openPlaylist = playlist;
-        closeDialog('unlockDialog'); setView('playlists');
-      } catch (error) { notify(error.message, true); }
-    });
 
-    $('#requestForm').addEventListener('submit', async (event) => {
-      event.preventDefault();
-      if (!CONFIG.requestWebhookUrl.trim()) { notify('Add your webhook URL to CONFIG.requestWebhookUrl first.', true); return; }
-      const form = new FormData(event.currentTarget);
-      const payload = { type: 'music-request', song: form.get('song').trim(), artist: form.get('artist').trim() || null, submittedAt: new Date().toISOString() };
-      try {
-        const response = await fetch(CONFIG.requestWebhookUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-        if (!response.ok) throw new Error('The webhook did not accept the request.');
-        closeDialog('requestDialog'); notify('Song request sent — thank you!');
-      } catch (error) { notify(`${error.message} The webhook must allow requests from this website.`, true); }
-    });
+  /*
+    ============================================================
+    SEARCH
+    ============================================================
+  */
 
-    Promise.all([loadTracks(), loadPlaylists()]).then(renderAll);
-  </script>
+  $('#songSearch')
+    .addEventListener(
+      'input',
+      renderBrowse
+    );
+
+
+  /*
+    ============================================================
+    PLAYER CONTROLS
+    ============================================================
+  */
+
+  $('#togglePlayButton')
+    .addEventListener(
+      'click',
+      () => {
+
+        if (state.currentTrackId) {
+
+          playTrack(
+            state.currentTrackId
+          );
+
+        } else {
+
+          playTrack(
+            state.tracks[0]?.id
+          );
+        }
+      }
+    );
+
+
+  $('#previousButton')
+    .addEventListener(
+      'click',
+      () =>
+        playAdjacent(-1)
+    );
+
+
+  $('#nextButton')
+    .addEventListener(
+      'click',
+      () =>
+        playAdjacent(1)
+    );
+
+
+  $('#volume')
+    .addEventListener(
+      'input',
+      (event) => {
+
+        audio.volume =
+          Number(
+            event.target.value
+          ) / 100;
+      }
+    );
+
+
+  $('#seek')
+    .addEventListener(
+      'input',
+      (event) => {
+
+        if (
+          Number.isFinite(
+            audio.duration
+          )
+        ) {
+
+          audio.currentTime =
+            audio.duration *
+            (
+              Number(
+                event.target.value
+              ) / 1000
+            );
+        }
+      }
+    );
+
+
+  /*
+    ============================================================
+    AUDIO EVENTS
+    ============================================================
+  */
+
+  audio.volume = 0.8;
+
+
+  audio.addEventListener(
+    'play',
+    () => {
+
+      $('#togglePlayButton')
+        .textContent = 'Ⅱ';
+
+      $('#togglePlayButton')
+        .title = 'Pause';
+
+      renderBrowse();
+    }
+  );
+
+
+  audio.addEventListener(
+    'pause',
+    () => {
+
+      $('#togglePlayButton')
+        .textContent = '▶';
+
+      $('#togglePlayButton')
+        .title = 'Play';
+
+      renderBrowse();
+    }
+  );
+
+
+  audio.addEventListener(
+    'timeupdate',
+    () => {
+
+      $('#elapsed')
+        .textContent =
+          formatTime(
+            audio.currentTime
+          );
+
+
+      $('#seek').value =
+        Number.isFinite(
+          audio.duration
+        )
+          ? Math.round(
+              (
+                audio.currentTime /
+                audio.duration
+              ) * 1000
+            )
+          : 0;
+    }
+  );
+
+
+  audio.addEventListener(
+    'loadedmetadata',
+    () => {
+
+      $('#duration')
+        .textContent =
+          formatTime(
+            audio.duration
+          );
+    }
+  );
+
+
+  audio.addEventListener(
+    'ended',
+    () => {
+      playAdjacent(1);
+    }
+  );
+
+
+  audio.addEventListener(
+    'error',
+    () => {
+
+      if (
+        state.currentTrackId
+      ) {
+
+        notify(
+          'The current MP3 was not found or could not be decoded.',
+          true
+        );
+      }
+    }
+  );
+
+
+  /*
+    ============================================================
+    CREATE PLAYLIST
+    ============================================================
+  */
+
+  $('#playlistForm')
+    .addEventListener(
+      'submit',
+      async (event) => {
+
+        event.preventDefault();
+
+
+        const form =
+          new FormData(
+            event.currentTarget
+          );
+
+
+        const name =
+          String(
+            form.get('name') || ''
+          ).trim();
+
+
+        const description =
+          String(
+            form.get('description') || ''
+          ).trim();
+
+
+        const password =
+          String(
+            form.get('password') || ''
+          );
+
+
+        const isPrivate =
+          form.get('isPrivate') ===
+          'on';
+
+
+        if (!name) {
+
+          notify(
+            'Enter a playlist name.',
+            true
+          );
+
+          return;
+        }
+
+
+        if (
+          password.length < 4
+        ) {
+
+          notify(
+            'Playlist password must be at least 4 characters.',
+            true
+          );
+
+          return;
+        }
+
+
+        /*
+          Generate an ID.
+        */
+
+        const baseId =
+          name
+            .toLowerCase()
+            .replace(
+              /[^a-z0-9]+/g,
+              '-'
+            )
+            .replace(
+              /^-|-$/g,
+              ''
+            );
+
+
+        const playlist = {
+
+          id:
+            `${baseId}-${Date.now()}`,
+
+          name,
+
+          description,
+
+          isPrivate,
+
+          /*
+            Password is intentionally
+            stored in plaintext.
+          */
+
+          password,
+
+          songs: [],
+
+          trackCount: 0
+        };
+
+
+        try {
+
+          state.playlists.push(
+            normalizePlaylist(
+              playlist
+            )
+          );
+
+
+          const result =
+            await sendPlaylistToWebhook(
+              state.playlists,
+              'created'
+            );
+
+
+          closeDialog(
+            'playlistDialog'
+          );
+
+
+          renderPlaylists();
+
+
+          notify(
+            'Playlist created. The updated playlist.json was sent to the webhook.'
+          );
+
+
+          console.log(
+            'NEW PLAYLIST.JSON:\n' +
+            result.playlistJSON
+          );
+
+
+        } catch (error) {
+
+          /*
+            Undo local change if
+            webhook failed.
+          */
+
+          state.playlists =
+            state.playlists.filter(
+              (item) =>
+                item.id !==
+                playlist.id
+            );
+
+
+          notify(
+            error.message,
+            true
+          );
+        }
+      }
+    );
+
+
+  /*
+    ============================================================
+    ADD SONG TO PLAYLIST
+    ============================================================
+  */
+
+  $('#addToPlaylistForm')
+    .addEventListener(
+      'submit',
+      async (event) => {
+
+        event.preventDefault();
+
+
+        const form =
+          new FormData(
+            event.currentTarget
+          );
+
+
+        const playlistId =
+          String(
+            form.get('playlistId') || ''
+          );
+
+
+        const password =
+          String(
+            form.get('password') || ''
+          );
+
+
+        const track =
+          getTrack(
+            state.pendingTrackId
+          );
+
+
+        if (!track) {
+
+          notify(
+            'Song not found.',
+            true
+          );
+
+          return;
+        }
+
+
+        const playlist =
+          state.playlists.find(
+            (item) =>
+              item.id ===
+              playlistId
+          );
+
+
+        if (!playlist) {
+
+          notify(
+            'Playlist not found.',
+            true
+          );
+
+          return;
+        }
+
+
+        /*
+          Check playlist password.
+
+          Public playlists still have a password
+          because every playlist gets one.
+        */
+
+        if (
+          password !==
+          playlist.password
+        ) {
+
+          notify(
+            'Incorrect playlist password.',
+            true
+          );
+
+          return;
+        }
+
+
+        try {
+
+          /*
+            Don't add duplicate songs.
+          */
+
+          if (
+            !playlist.songs.includes(
+              track.file
+            )
+          ) {
+
+            playlist.songs.push(
+              track.file
+            );
+          }
+
+
+          playlist.trackCount =
+            playlist.songs.length;
+
+
+          const result =
+            await sendPlaylistToWebhook(
+              state.playlists,
+              'updated'
+            );
+
+
+          closeDialog(
+            'addToPlaylistDialog'
+          );
+
+
+          renderPlaylists();
+
+
+          notify(
+            'Song added. Updated playlist.json was sent to the webhook.'
+          );
+
+
+          console.log(
+            'NEW PLAYLIST.JSON:\n' +
+            result.playlistJSON
+          );
+
+
+        } catch (error) {
+
+          notify(
+            error.message,
+            true
+          );
+        }
+      }
+    );
+
+
+  /*
+    ============================================================
+    UNLOCK PRIVATE PLAYLIST
+    ============================================================
+  */
+
+  $('#unlockForm')
+    .addEventListener(
+      'submit',
+      async (event) => {
+
+        event.preventDefault();
+
+
+        try {
+
+          const form =
+            new FormData(
+              event.currentTarget
+            );
+
+
+          const password =
+            String(
+              form.get('password') || ''
+            );
+
+
+          const result =
+            await playlistRequest(
+              'open',
+              {
+                playlistId:
+                  state.pendingPlaylistId,
+
+                password
+              }
+            );
+
+
+          const playlist =
+            normalizePlaylist(
+              result.playlist
+            );
+
+
+          state.openPlaylist =
+            playlist;
+
+
+          closeDialog(
+            'unlockDialog'
+          );
+
+
+          setView(
+            'playlists'
+          );
+
+
+        } catch (error) {
+
+          notify(
+            error.message,
+            true
+          );
+        }
+      }
+    );
+
+
+  /*
+    ============================================================
+    SONG REQUEST
+    ============================================================
+  */
+
+  $('#requestForm')
+    .addEventListener(
+      'submit',
+      async (event) => {
+
+        event.preventDefault();
+
+
+        if (
+          !CONFIG.requestWebhookUrl.trim()
+        ) {
+
+          notify(
+            'Add your webhook URL to CONFIG.requestWebhookUrl first.',
+            true
+          );
+
+          return;
+        }
+
+
+        const form =
+          new FormData(
+            event.currentTarget
+          );
+
+
+        const payload = {
+
+          type:
+            'music-request',
+
+          song:
+            String(
+              form.get('song') || ''
+            ).trim(),
+
+          artist:
+            String(
+              form.get('artist') || ''
+            ).trim() ||
+            null,
+
+          submittedAt:
+            new Date().toISOString()
+        };
+
+
+        try {
+
+          const response =
+            await fetch(
+              CONFIG.requestWebhookUrl,
+              {
+                method: 'POST',
+
+                headers: {
+                  'Content-Type':
+                    'application/json'
+                },
+
+                body:
+                  JSON.stringify(
+                    payload
+                  )
+              }
+            );
+
+
+          if (!response.ok) {
+
+            throw new Error(
+              'The webhook did not accept the request.'
+            );
+          }
+
+
+          closeDialog(
+            'requestDialog'
+          );
+
+
+          notify(
+            'Song request sent — thank you!'
+          );
+
+
+        } catch (error) {
+
+          notify(
+            `${error.message} The webhook must allow requests from this website.`,
+            true
+          );
+        }
+      }
+    );
+
+
+  /*
+    ============================================================
+    INITIAL LOAD
+    ============================================================
+  */
+
+  Promise.all([
+    loadTracks(),
+    loadPlaylists()
+  ]).then(
+    renderAll
+  );
+
+</script>
 </body>
 </html>
