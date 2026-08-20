@@ -1468,27 +1468,53 @@
         <div class="playlist-tools">
 
         <button
-            class="primary"
-            data-action="play-playlist"
-            data-playlist-id="${escapeHTML(playlist.id)}"
+          class="primary"
+          data-action="play-playlist"
+          data-playlist-id="${escapeHTML(playlist.id)}"
         >
-            ▶ Play
+          ${
+            state.playlistQueue.length &&
+            state.openPlaylist?.id === playlist.id &&
+            !audio.paused
+              ? 'Ⅱ Pause'
+              : '▶ Play'
+          }
         </button>
-
+        
         <button
-            class="secondary"
-            data-action="shuffle-playlist"
-            data-playlist-id="${escapeHTML(playlist.id)}"
+          class="secondary ${
+            state.playlistShuffle &&
+            state.openPlaylist?.id === playlist.id
+              ? 'active'
+              : ''
+          }"
+          data-action="toggle-shuffle"
+          data-playlist-id="${escapeHTML(playlist.id)}"
         >
-            🔀 Shuffle
+          🔀 Shuffle ${
+            state.playlistShuffle &&
+            state.openPlaylist?.id === playlist.id
+              ? 'ON'
+              : 'OFF'
+          }
         </button>
-
+        
         <button
-            class="secondary"
-            data-action="loop-playlist"
-            data-playlist-id="${escapeHTML(playlist.id)}"
+          class="secondary ${
+            state.playlistLoop &&
+            state.openPlaylist?.id === playlist.id
+              ? 'active'
+              : ''
+          }"
+          data-action="toggle-loop"
+          data-playlist-id="${escapeHTML(playlist.id)}"
         >
-            🔁 Loop
+          🔁 Loop ${
+            state.playlistLoop &&
+            state.openPlaylist?.id === playlist.id
+              ? 'ON'
+              : 'OFF'
+          }
         </button>
 
         <button
