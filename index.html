@@ -19,6 +19,63 @@
       --shadow: 0 20px 55px rgba(0, 0, 0, .28);
     }
 
+    /* Playlist toggle switches */
+    
+    .playlist-switch {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      user-select: none;
+    }
+    
+    .playlist-switch input {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+    }
+    
+    .switch-track {
+      position: relative;
+      width: 42px;
+      height: 24px;
+      border-radius: 999px;
+      background: #3a4054;
+      border: 1px solid rgba(255,255,255,.12);
+      transition: background .2s ease;
+    }
+    
+    .switch-track::after {
+      content: "";
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #a8aec4;
+      transition: transform .2s ease, background .2s ease;
+    }
+    
+    .playlist-switch input:checked + .switch-track {
+      background: var(--accent);
+    }
+    
+    .playlist-switch input:checked + .switch-track::after {
+      transform: translateX(18px);
+      background: var(--accent-ink);
+    }
+    
+    .switch-label {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+    }
+    
+    .playlist-switch input:checked ~ .switch-label {
+      color: var(--ink);
+    }
+    
     * { box-sizing: border-box; }
     html { background: #10131f; color-scheme: dark; }
     body {
@@ -464,6 +521,7 @@
     playlistQueueIndex: 0,
     playlistShuffle: false,
     playlistLoop: false
+    activePlaylistId: null
   };
 
   /*
@@ -1434,7 +1492,10 @@
       const tracks =
         playlistTracks(playlist);
 
-
+      const playlistIsActive =
+        state.activePlaylistId ===
+        playlist.id;
+      
       root.innerHTML = `
         <div class="playlist-detail-head">
 
@@ -1615,53 +1676,49 @@
 
               return `
                 <button
-                  class="playlist-card"
-                  data-action="open-matched-playlist"
+                  class="primary"
+                  data-action="play-playlist"
                   data-playlist-id="${escapeHTML(playlist.id)}"
                 >
-
-                  <div>
-
-                    <span
-                      class="badge${
-                        playlist.isPrivate
-                          ? ' private'
-                          : ''
-                      }"
-                    >
-                      ${
-                        playlist.isPrivate
-                          ? '🔒 Private'
-                          : '◎ Public'
-                      }
-                    </span>
-
-                    <h3>
-                      ${escapeHTML(
-                        playlist.name
-                      )}
-                    </h3>
-
-                    <p>
-                      ${escapeHTML(
-                        playlist.description ||
-                        'A listener-made queue'
-                      )}
-                    </p>
-
-                  </div>
-
-                  <span class="badge">
-                    ${count}
-                    ${
-                      count === 1
-                        ? 'song'
-                        : 'songs'
-                    }
-                    · Open
-                  </span>
-
+                  ${
+                    state.activePlaylistId === playlist.id &&
+                    !audio.paused
+                      ? 'Ⅱ Pause'
+                      : '▶ Play'
+                  }
                 </button>
+                
+                <label class="playlist-switch">
+                  <input
+                    type="checkbox"
+                    data-action="toggle-shuffle"
+                    data-playlist-id="${escapeHTML(playlist.id)}"
+                    ${
+                      state.activePlaylistId === playlist.id &&
+                      state.playlistShuffle
+                        ? 'checked'
+                        : ''
+                    }
+                  >
+                  <span class="switch-track"></span>
+                  <span class="switch-label">Shuffle</span>
+                </label>
+                
+                <label class="playlist-switch">
+                  <input
+                    type="checkbox"
+                    data-action="toggle-loop"
+                    data-playlist-id="${escapeHTML(playlist.id)}"
+                    ${
+                      state.activePlaylistId === playlist.id &&
+                      state.playlistLoop
+                        ? 'checked'
+                        : ''
+                    }
+                  >
+                  <span class="switch-track"></span>
+                  <span class="switch-label">Loop</span>
+                </label>
               `;
             }
           )
@@ -1915,40 +1972,56 @@
     }
 
 
-    function playNextPlaylistSong() {
-
+  function playNextPlaylistSong() {
+  
     if (!state.playlistQueue.length) {
-        return;
+      return;
     }
-
+  
+    /*
+      Reached the end.
+    */
+  
     if (
-        state.playlistQueueIndex >=
-        state.playlistQueue.length - 1
+      state.playlistQueueIndex >=
+      state.playlistQueue.length - 1
     ) {
-
-        if (state.playlistLoop) {
+  
+      if (state.playlistLoop) {
+  
         state.playlistQueueIndex = 0;
-
+  
         playTrack(
-            state.playlistQueue[0].id
+          state.playlistQueue[0].id
         );
-
+  
         return;
-        }
-
-        state.playlistQueue = [];
-
-        return;
+      }
+  
+      /*
+        Playlist has finished.
+      */
+  
+      state.playlistQueue = [];
+      state.activePlaylistId = null;
+  
+      renderPlaylists();
+  
+      return;
     }
-
+  
+    /*
+      Go to next playlist song.
+    */
+  
     state.playlistQueueIndex++;
-
+  
     playTrack(
-        state.playlistQueue[
+      state.playlistQueue[
         state.playlistQueueIndex
-        ].id
+      ].id
     );
-    }
+  }
 
   /*
     ============================================================
@@ -2051,6 +2124,58 @@
     ============================================================
   */
 
+  document.addEventListener(
+    'change',
+    (event) => {
+  
+      const input =
+        event.target.closest(
+          '.playlist-switch input'
+        );
+  
+      if (!input) {
+        return;
+      }
+  
+      const playlist =
+        state.playlists.find(
+          item =>
+            item.id ===
+            input.dataset.playlistId
+        );
+  
+      if (!playlist) {
+        return;
+      }
+  
+      if (
+        input.dataset.action ===
+        'toggle-shuffle'
+      ) {
+  
+        togglePlaylistShuffle(
+          playlist,
+          input.checked
+        );
+  
+        return;
+      }
+  
+      if (
+        input.dataset.action ===
+        'toggle-loop'
+      ) {
+  
+        togglePlaylistLoop(
+          playlist,
+          input.checked
+        );
+  
+        return;
+      }
+    }
+  );
+    
   document.addEventListener(
     'click',
     (event) => {
@@ -2298,23 +2423,56 @@
           'addToPlaylistDialog'
         );
       }
-        if (action === 'play-playlist') {
 
-        const playlist =
-            state.playlists.find(
-            item =>
-                item.id ===
-                button.dataset.playlistId
-            );
-
-if (action === 'play-playlist') {
-
-  const playlist =
-    state.playlists.find(
-      item =>
-        item.id ===
-        button.dataset.playlistId
+  if (action === 'play-playlist') {
+  
+    const playlist =
+      state.playlists.find(
+        item =>
+          item.id ===
+          button.dataset.playlistId
+      );
+  
+    if (!playlist) {
+      return;
+    }
+  
+    /*
+      This playlist is already active.
+      Therefore this button is Play/Pause.
+    */
+  
+    if (
+      state.activePlaylistId ===
+        playlist.id &&
+      state.playlistQueue.length
+    ) {
+  
+      if (audio.paused) {
+  
+        audio.play();
+  
+      } else {
+  
+        audio.pause();
+      }
+  
+      renderPlaylists();
+  
+      return;
+    }
+  
+    /*
+      Start a completely new playlist.
+    */
+  
+    startPlaylist(
+      playlist,
+      state.playlistShuffle
     );
+  
+    return;
+  }     
 
   if (!playlist) return;
 
@@ -2343,10 +2501,208 @@ if (action === 'play-playlist') {
     Otherwise start the playlist.
   */
 
-  startPlaylist(
+  function startPlaylist(
     playlist,
-    state.playlistShuffle
-  );
+    shuffle = state.playlistShuffle
+  ) {
+  
+    const tracks =
+      playlistTracks(playlist);
+  
+    if (!tracks.length) {
+      notify(
+        'This playlist has no songs available.',
+        true
+      );
+      return;
+    }
+  
+    state.activePlaylistId =
+      playlist.id;
+  
+    state.openPlaylist =
+      playlist;
+  
+    state.playlistShuffle =
+      shuffle;
+  
+    state.playlistQueue =
+      [...tracks];
+  
+    /*
+      Shuffle the queue.
+    */
+  
+    if (shuffle) {
+  
+      for (
+        let i =
+          state.playlistQueue.length - 1;
+        i > 0;
+        i--
+      ) {
+  
+        const j =
+          Math.floor(
+            Math.random() * (i + 1)
+          );
+  
+        [
+          state.playlistQueue[i],
+          state.playlistQueue[j]
+        ] = [
+          state.playlistQueue[j],
+          state.playlistQueue[i]
+        ];
+      }
+    }
+  
+    state.playlistQueueIndex = 0;
+  
+    playTrack(
+      state.playlistQueue[0].id
+    );
+  
+    renderPlaylists();
+  }
+
+  function togglePlaylistShuffle(
+    playlist,
+    enabled
+  ) {
+  
+    /*
+      If this playlist isn't currently active,
+      just change its setting.
+    */
+  
+    if (
+      state.activePlaylistId !==
+      playlist.id
+    ) {
+  
+      state.playlistShuffle =
+        enabled;
+  
+      renderPlaylists();
+  
+      return;
+    }
+  
+    state.playlistShuffle =
+      enabled;
+  
+    const currentTrack =
+      state.playlistQueue[
+        state.playlistQueueIndex
+      ];
+  
+    if (!currentTrack) {
+      renderPlaylists();
+      return;
+    }
+  
+    /*
+      Get every song in the playlist.
+    */
+  
+    let remaining =
+      playlistTracks(playlist)
+        .filter(
+          track =>
+            track.id !==
+            currentTrack.id
+        );
+  
+    if (enabled) {
+  
+      /*
+        Shuffle everything after
+        the currently playing song.
+      */
+  
+      for (
+        let i = remaining.length - 1;
+        i > 0;
+        i--
+      ) {
+  
+        const j =
+          Math.floor(
+            Math.random() * (i + 1)
+          );
+  
+        [
+          remaining[i],
+          remaining[j]
+        ] = [
+          remaining[j],
+          remaining[i]
+        ];
+      }
+    }
+  
+    /*
+      Keep the current song first.
+    */
+  
+    state.playlistQueue = [
+      currentTrack,
+      ...remaining
+    ];
+  
+    state.playlistQueueIndex = 0;
+  
+    renderPlaylists();
+  
+    notify(
+      enabled
+        ? 'Shuffle enabled.'
+        : 'Shuffle disabled.'
+    );
+  }
+  
+  function togglePlaylistLoop(
+    playlist,
+    enabled
+  ) {
+  
+    /*
+      If this playlist isn't active,
+      make it the active playlist but don't
+      start playing anything.
+    */
+  
+    if (
+      state.activePlaylistId !==
+      playlist.id
+    ) {
+  
+      state.activePlaylistId =
+        playlist.id;
+  
+      state.openPlaylist =
+        playlist;
+  
+      state.playlistQueue =
+        playlistTracks(playlist);
+  
+      state.playlistQueueIndex = 0;
+    }
+  
+    state.playlistLoop =
+      enabled;
+  
+    renderPlaylists();
+  
+    notify(
+      enabled
+        ? 'Playlist loop enabled.'
+        : 'Playlist loop disabled.'
+    );
+  }
+  
+  
 
   return;
 }
@@ -2664,21 +3020,22 @@ if (action === 'toggle-loop') {
     ============================================================
   */
 
-  audio.volume = 0.8;
-  video.volume = 0.8;
+  audio.volume = 1;
+  video.volume = 1;
 
 
   audio.addEventListener(
     'play',
     () => {
-
+  
       $('#togglePlayButton')
         .textContent = 'Ⅱ';
-
+  
       $('#togglePlayButton')
         .title = 'Pause';
-
+  
       renderBrowse();
+      renderPlaylists();
     }
   );
 
@@ -2717,14 +3074,15 @@ if (action === 'toggle-loop') {
   audio.addEventListener(
     'pause',
     () => {
-
+  
       $('#togglePlayButton')
         .textContent = '▶';
-
+  
       $('#togglePlayButton')
         .title = 'Play';
-
+  
       renderBrowse();
+      renderPlaylists();
     }
   );
 
