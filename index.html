@@ -19,6 +19,63 @@
       --shadow: 0 20px 55px rgba(0, 0, 0, .28);
     }
 
+    .playlist-card-controls {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 15px;
+    }
+    
+    .playlist-switch {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      cursor: pointer;
+      user-select: none;
+    }
+    
+    .playlist-switch input {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+    }
+    
+    .switch-track {
+      position: relative;
+      width: 38px;
+      height: 21px;
+      border-radius: 999px;
+      background: #3b4052;
+      transition: .2s ease;
+    }
+    
+    .switch-track::after {
+      content: "";
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 15px;
+      height: 15px;
+      border-radius: 50%;
+      background: white;
+      transition: .2s ease;
+    }
+    
+    .playlist-switch input:checked + .switch-track {
+      background: var(--accent);
+    }
+    
+    .playlist-switch input:checked + .switch-track::after {
+      transform: translateX(17px);
+    }
+    
+    .switch-label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+    
     /* Playlist toggle switches */
     
     .playlist-switch {
@@ -2266,6 +2323,14 @@
         return;
       }
 
+      if (
+        action === 'play-playlist' ||
+        action === 'toggle-shuffle' ||
+        action === 'toggle-loop'
+      ) {
+        event.stopPropagation();
+      }
+      
       const action = button.dataset.action;
 
       if (action === 'edit-playlist') {
