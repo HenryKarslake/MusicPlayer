@@ -1,0 +1,656 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#10131f">
+  <title>EchoShelf — Music Player</title>
+  <style>
+    :root {
+      --ink: #f7f6ff;
+      --muted: #a8aec4;
+      --surface: #191d2e;
+      --surface-2: #22283d;
+      --line: rgba(255, 255, 255, .1);
+      --accent: #c6ff6b;
+      --accent-ink: #122000;
+      --pink: #ff7bbd;
+      --danger: #ff8686;
+      --shadow: 0 20px 55px rgba(0, 0, 0, .28);
+    }
+
+    * { box-sizing: border-box; }
+    html { background: #10131f; color-scheme: dark; }
+    body {
+      min-width: 320px;
+      margin: 0;
+      color: var(--ink);
+      font: 15px/1.45 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at 3% 0%, rgba(198,255,107,.15), transparent 27rem),
+        radial-gradient(circle at 94% 20%, rgba(255,123,189,.12), transparent 31rem),
+        #10131f;
+    }
+    button, input, textarea, select { font: inherit; }
+    button { cursor: pointer; }
+    .app { min-height: 100vh; padding-bottom: 105px; }
+    .topbar {
+      position: sticky; top: 0; z-index: 10;
+      display: flex; align-items: center; justify-content: space-between; gap: 20px;
+      padding: 18px clamp(20px, 5vw, 72px);
+      border-bottom: 1px solid var(--line);
+      background: rgba(16, 19, 31, .8); backdrop-filter: blur(18px);
+    }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 850; letter-spacing: -.04em; font-size: 21px; }
+    .brand-mark { width: 29px; height: 29px; display: grid; place-items: center; border-radius: 10px; background: var(--accent); color: var(--accent-ink); font-size: 18px; }
+    .nav { display: flex; gap: 5px; }
+    .nav button, .text-button { border: 0; background: transparent; color: var(--muted); padding: 9px 12px; border-radius: 9px; }
+    .nav button:hover, .nav button.active { color: var(--ink); background: rgba(255,255,255,.08); }
+    .top-actions { display: flex; gap: 8px; align-items: center; }
+    .primary, .secondary, .icon-button, .play-button, .small-button {
+      border: 0; border-radius: 10px; transition: transform .15s ease, filter .15s ease, background .15s ease;
+    }
+    .primary:hover, .secondary:hover, .icon-button:hover, .play-button:hover, .small-button:hover { transform: translateY(-1px); filter: brightness(1.06); }
+    .primary { padding: 10px 14px; font-weight: 750; color: var(--accent-ink); background: var(--accent); }
+    .secondary { padding: 10px 14px; color: var(--ink); background: var(--surface-2); border: 1px solid var(--line); }
+    .layout { display: grid; grid-template-columns: 225px minmax(0, 1fr); gap: clamp(22px, 4vw, 58px); max-width: 1440px; margin: 0 auto; padding: 34px clamp(20px, 5vw, 72px); }
+    .artist-rail { position: sticky; top: 96px; align-self: start; max-height: calc(100vh - 122px); overflow: auto; padding-right: 7px; }
+    .rail-title, .eyebrow { color: var(--accent); font-size: 11px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+    .artist-rail h2 { margin: 7px 0 12px; font-size: 18px; letter-spacing: -.02em; }
+    .artist-link { width: 100%; display: flex; justify-content: space-between; gap: 12px; padding: 9px 8px; border: 0; border-radius: 8px; color: var(--muted); text-align: left; background: none; }
+    .artist-link:hover { background: rgba(255,255,255,.07); color: var(--ink); }
+    .artist-link span:last-child { font-size: 12px; opacity: .65; }
+    .content { min-width: 0; }
+    .view { display: none; animation: appear .2s ease both; }
+    .view.active { display: block; }
+    @keyframes appear { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+    .hero { margin-bottom: 27px; }
+    h1 { margin: 5px 0 8px; max-width: 760px; font-size: clamp(34px, 5vw, 61px); line-height: .98; letter-spacing: -.065em; }
+    .hero p { max-width: 700px; margin: 0; color: var(--muted); font-size: 16px; }
+    .toolbar { display: flex; align-items: center; gap: 12px; margin: 25px 0 14px; }
+    .search { flex: 1; display: flex; align-items: center; gap: 9px; padding: 11px 13px; border: 1px solid var(--line); border-radius: 11px; background: rgba(25,29,46,.8); color: var(--muted); }
+    .search input { min-width: 0; width: 100%; border: 0; outline: 0; background: transparent; color: var(--ink); }
+    .status { min-height: 22px; margin: 0 0 13px; color: var(--muted); font-size: 13px; }
+    .status.error { color: #ffb0b0; }
+    .song-head, .song-row { display: grid; grid-template-columns: 37px minmax(0, 1.5fr) minmax(140px, .85fr) 42px; align-items: center; gap: 12px; }
+    .song-head { padding: 0 12px 8px; color: var(--muted); font-size: 11px; letter-spacing: .11em; text-transform: uppercase; }
+    .song-list { overflow: hidden; border: 1px solid var(--line); border-radius: 13px; background: rgba(25,29,46,.56); }
+    .song-row { min-height: 68px; padding: 8px 12px; border-top: 1px solid var(--line); }
+    .song-row:first-child { border-top: 0; }
+    .song-row:hover, .song-row.playing { background: rgba(198,255,107,.08); }
+    .track-title { overflow: hidden; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+    .track-subtitle { overflow: hidden; margin-top: 2px; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+    .artist-song-button { padding: 4px 0; border: 0; color: var(--muted); text-align: left; background: transparent; }
+    .artist-song-button:hover { color: var(--accent); }
+    .play-button { width: 32px; height: 32px; color: var(--accent-ink); background: var(--accent); font-weight: 900; }
+    .small-button { width: 31px; height: 31px; color: var(--ink); background: var(--surface-2); border: 1px solid var(--line); font-size: 18px; line-height: 1; }
+    .empty { padding: 32px 20px; color: var(--muted); text-align: center; }
+    .artist-header, .playlist-detail-head { display: flex; justify-content: space-between; gap: 18px; align-items: end; margin-bottom: 24px; }
+    .artist-avatar { width: 70px; height: 70px; display: grid; place-items: center; border-radius: 50%; color: var(--accent-ink); background: linear-gradient(135deg, var(--accent), #85e8ff); font-size: 25px; font-weight: 900; }
+    .artist-title-group { display: flex; align-items: center; gap: 16px; }
+    .artist-title-group h1, .playlist-detail-head h1 { font-size: clamp(32px, 4vw, 51px); }
+    .playlist-tools { display: flex; align-items: center; gap: 10px; }
+    .playlist-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(215px, 1fr)); gap: 14px; }
+    .playlist-card { min-height: 195px; display: flex; flex-direction: column; justify-content: space-between; padding: 18px; border: 1px solid var(--line); border-radius: 14px; color: var(--ink); text-align: left; background: linear-gradient(145deg, rgba(255,123,189,.15), rgba(25,29,46,.93) 52%); }
+    .playlist-card:nth-child(3n+2) { background: linear-gradient(145deg, rgba(198,255,107,.16), rgba(25,29,46,.93) 52%); }
+    .playlist-card:nth-child(3n) { background: linear-gradient(145deg, rgba(133,232,255,.17), rgba(25,29,46,.93) 52%); }
+    .playlist-card:hover { transform: translateY(-2px); border-color: rgba(198,255,107,.55); }
+    .playlist-card h3 { margin: 11px 0 5px; font-size: 20px; letter-spacing: -.03em; }
+    .playlist-card p { margin: 0; color: var(--muted); font-size: 13px; }
+    .badge { display: inline-flex; width: fit-content; align-items: center; gap: 5px; padding: 4px 7px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); background: rgba(16,19,31,.34); font-size: 11px; font-weight: 750; }
+    .badge.private { color: #ffd27a; }
+    .player { position: fixed; right: 0; bottom: 0; left: 0; z-index: 20; display: grid; grid-template-columns: minmax(190px, 1fr) auto minmax(190px, 1fr); align-items: center; gap: 20px; min-height: 88px; padding: 10px clamp(16px, 4vw, 58px); border-top: 1px solid var(--line); background: rgba(15,17,28,.92); box-shadow: 0 -15px 38px rgba(0,0,0,.18); backdrop-filter: blur(22px); }
+    .now-playing { min-width: 0; display: flex; align-items: center; gap: 10px; }
+    .cover { width: 48px; height: 48px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 11px; color: var(--accent-ink); background: linear-gradient(135deg, var(--accent), #73c1ff); font-weight: 900; }
+    .now-playing div { min-width: 0; }
+    .now-playing strong, .now-playing span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .now-playing span { color: var(--muted); font-size: 12px; }
+    .player-center { width: min(430px, 44vw); }
+    .transport { display: flex; align-items: center; justify-content: center; gap: 8px; }
+    .icon-button { width: 34px; height: 34px; border: 0; color: var(--ink); background: transparent; font-size: 18px; }
+    .icon-button.primary-play { width: 40px; height: 40px; color: var(--accent-ink); background: var(--accent); font-size: 16px; }
+    .seek-row { display: grid; grid-template-columns: 36px 1fr 36px; align-items: center; gap: 7px; margin-top: 4px; color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+    input[type="range"] { width: 100%; accent-color: var(--accent); cursor: pointer; }
+    .player-right { display: flex; justify-content: flex-end; align-items: center; gap: 8px; color: var(--muted); }
+    .player-right input { width: 100px; }
+    dialog { width: min(510px, calc(100% - 28px)); padding: 0; border: 1px solid var(--line); border-radius: 16px; color: var(--ink); background: #20263a; box-shadow: var(--shadow); }
+    dialog::backdrop { background: rgba(0,0,0,.6); backdrop-filter: blur(3px); }
+    .modal { padding: 23px; }
+    .modal h2 { margin: 0 0 5px; font-size: 25px; letter-spacing: -.04em; }
+    .modal > p { margin: 0 0 19px; color: var(--muted); }
+    .field { display: grid; gap: 7px; margin: 13px 0; color: #e2e4ee; font-size: 13px; font-weight: 700; }
+    .field input, .field textarea, .field select { width: 100%; padding: 10px 11px; border: 1px solid var(--line); border-radius: 9px; outline: none; color: var(--ink); background: #141827; }
+    .field input:focus, .field textarea:focus, .field select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(198,255,107,.12); }
+    .field textarea { min-height: 80px; resize: vertical; }
+    .check { display: flex; align-items: flex-start; gap: 9px; padding: 10px; border-radius: 9px; color: var(--muted); background: rgba(255,255,255,.05); font-size: 13px; }
+    .check input { width: auto; margin-top: 3px; accent-color: var(--accent); }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 20px; }
+    .modal-note { margin: 12px 0 0; color: var(--muted); font-size: 11px; }
+    .toast { position: fixed; right: 20px; bottom: 108px; z-index: 40; max-width: min(390px, calc(100vw - 40px)); padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; color: var(--ink); background: #292f45; box-shadow: var(--shadow); opacity: 0; pointer-events: none; transform: translateY(8px); transition: .2s ease; }
+    .toast.visible { opacity: 1; transform: none; }
+    .toast.error { border-color: rgba(255,134,134,.5); }
+    .hidden { display: none !important; }
+    @media (max-width: 760px) {
+      .topbar { padding: 14px 17px; }
+      .top-actions .secondary { display: none; }
+      .nav button { padding: 8px; font-size: 13px; }
+      .layout { display: block; padding: 28px 17px; }
+      .artist-rail { position: static; max-height: none; margin: 0 0 28px; padding-bottom: 9px; overflow-x: auto; white-space: nowrap; }
+      .artist-rail h2 { display: inline; margin-right: 12px; }
+      #artistList { display: inline-flex; gap: 4px; }
+      .artist-link { display: inline-flex; width: auto; }
+      .song-head { display: none; }
+      .song-row { grid-template-columns: 37px minmax(0, 1fr) 34px; }
+      .song-row .artist-song-button { display: none; }
+      .player { grid-template-columns: minmax(0, 1fr) auto; min-height: 78px; gap: 8px; padding: 8px 12px; }
+      .player-center { width: auto; }
+      .seek-row, .player-right { display: none; }
+      .now-playing .cover { width: 39px; height: 39px; }
+      .transport { gap: 2px; }
+      .transport .icon-button:first-child { display: none; }
+      .artist-header, .playlist-detail-head { align-items: flex-start; flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark">♪</span> EchoShelf</div>
+      <nav class="nav" aria-label="Main navigation">
+        <button class="active" data-view-target="browse">Browse</button>
+        <button data-view-target="playlists">Playlists</button>
+      </nav>
+      <div class="top-actions">
+        <button class="secondary" id="requestSongButton">Request a song</button>
+        <button class="primary" id="createPlaylistButton">+ Playlist</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="artist-rail" aria-label="Artists">
+        <div class="rail-title">Your collection</div>
+        <h2>Artists</h2>
+        <div id="artistList"><span class="status">Loading artists…</span></div>
+      </aside>
+
+      <div class="content">
+        <section id="browseView" class="view active">
+          <div class="hero">
+            <div class="eyebrow">Music from your shelf</div>
+            <h1>Play what’s already here.</h1>
+            <p>Search the downloaded tracks in the <strong>Music</strong> folder, jump into artist pages, or spin a community playlist.</p>
+          </div>
+          <div class="toolbar">
+            <label class="search" aria-label="Search songs or artists">⌕ <input id="songSearch" autocomplete="off" placeholder="Search songs or artists"></label>
+          </div>
+          <p id="musicStatus" class="status">Finding your music…</p>
+          <div class="song-head"><span></span><span>Song</span><span>Artist</span><span></span></div>
+          <div id="songList" class="song-list"></div>
+        </section>
+
+        <section id="artistView" class="view">
+          <div class="artist-header">
+            <div class="artist-title-group">
+              <div class="artist-avatar" id="artistAvatar">A</div>
+              <div><div class="eyebrow">Artist profile</div><h1 id="artistName">Artist</h1><p id="artistTrackCount" class="status"></p></div>
+            </div>
+            <button class="secondary" data-view-target="browse">← All songs</button>
+          </div>
+          <div id="artistSongList" class="song-list"></div>
+        </section>
+
+        <section id="playlistsView" class="view">
+          <div class="hero">
+            <div class="eyebrow">Made by listeners</div>
+            <h1>Find a good queue.</h1>
+            <p>Public playlists are open for anyone to browse. Private ones stay locked until their password is entered.</p>
+          </div>
+          <div id="playlistRoot"></div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <footer class="player" aria-label="Music player">
+    <div class="now-playing">
+      <div class="cover">♪</div>
+      <div><strong id="nowTitle">Pick a song</strong><span id="nowArtist">Your Music folder will appear here</span></div>
+    </div>
+    <div class="player-center">
+      <div class="transport">
+        <button class="icon-button" id="previousButton" title="Previous song" aria-label="Previous song">⏮</button>
+        <button class="icon-button primary-play" id="togglePlayButton" title="Play" aria-label="Play">▶</button>
+        <button class="icon-button" id="nextButton" title="Next song" aria-label="Next song">⏭</button>
+      </div>
+      <div class="seek-row"><span id="elapsed">0:00</span><input id="seek" type="range" min="0" max="1000" value="0" aria-label="Playback position"><span id="duration">0:00</span></div>
+    </div>
+    <div class="player-right"><span>Volume</span><input id="volume" type="range" min="0" max="100" value="80" aria-label="Volume"></div>
+  </footer>
+  <audio id="audio" preload="metadata"></audio>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <dialog id="playlistDialog">
+    <form id="playlistForm" class="modal">
+      <h2>Create a playlist</h2>
+      <p>Public playlists can be found by everyone. A password protects edits either way.</p>
+      <label class="field">Playlist name<input name="name" maxlength="70" required placeholder="e.g. Late-night drives"></label>
+      <label class="field">Description <span style="font-weight:400;color:var(--muted)">(optional)</span><textarea name="description" maxlength="180" placeholder="A short note for listeners"></textarea></label>
+      <label class="field">Playlist password<input name="password" type="password" minlength="4" required placeholder="At least 4 characters"></label>
+      <label class="check"><input name="isPrivate" type="checkbox"><span><strong>Make this private</strong><br>It will not show its songs until the password is entered.</span></label>
+      <div class="modal-actions"><button type="button" class="secondary" data-close-dialog="playlistDialog">Cancel</button><button class="primary" type="submit">Create playlist</button></div>
+      <p class="modal-note">This site never saves playlist changes in your browser. Shared changes need the playlist API configured in the script.</p>
+    </form>
+  </dialog>
+
+  <dialog id="addToPlaylistDialog">
+    <form id="addToPlaylistForm" class="modal">
+      <h2>Add to playlist</h2>
+      <p id="addSongName">Choose a playlist for this song.</p>
+      <label class="field">Playlist<select id="playlistSelect" name="playlistId" required></select></label>
+      <label class="field">Playlist password<input name="password" type="password" required placeholder="The playlist's edit password"></label>
+      <div class="modal-actions"><button type="button" class="secondary" data-close-dialog="addToPlaylistDialog">Cancel</button><button class="primary" type="submit">Add song</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="unlockDialog">
+    <form id="unlockForm" class="modal">
+      <h2>Unlock playlist</h2>
+      <p id="unlockPlaylistName">Enter this playlist’s password to see it.</p>
+      <label class="field">Password<input name="password" type="password" required autofocus></label>
+      <div class="modal-actions"><button type="button" class="secondary" data-close-dialog="unlockDialog">Cancel</button><button class="primary" type="submit">Open playlist</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="requestDialog">
+    <form id="requestForm" class="modal">
+      <h2>Request a song</h2>
+      <p>Send a request to the person who manages this music shelf.</p>
+      <label class="field">Song name<input name="song" maxlength="120" required placeholder="What should be added?"></label>
+      <label class="field">Artist <span style="font-weight:400;color:var(--muted)">(optional)</span><input name="artist" maxlength="120" placeholder="If you know it"></label>
+      <div class="modal-actions"><button type="button" class="secondary" data-close-dialog="requestDialog">Cancel</button><button class="primary" type="submit">Send request</button></div>
+    </form>
+  </dialog>
+
+  <script>
+    /*
+      SETUP
+      1. Put MP3 files in ./Music. On a public GitHub Pages repository this page
+         automatically lists direct MP3 files in that folder using GitHub's public API.
+         For custom domains or local previews, add ./Music/music.json instead:
+         { "songs": ["Song title - Artist.mp3", "Another song - Artist.mp3"] }
+
+      2. ./playlist.json is read for public playlists. Example:
+         { "playlists": [{ "id": "late-nights", "name": "Late Nights",
+             "description": "", "isPrivate": false,
+             "songs": ["Song title - Artist.mp3"] }] }
+
+      3. GitHub Pages cannot write files. To create, edit, or privately unlock
+         shared playlists, deploy a tiny API/serverless function and paste its URL below.
+         It receives JSON POST bodies such as { action: "create" | "add-song" |
+         "open" | "list", ... }. It must save the shared playlist.json/database and
+         hash passwords server-side. Do not place a GitHub token in this HTML.
+    */
+    const CONFIG = {
+      musicManifestUrl: './Music/music.json',
+      playlistFileUrl: './playlist.json',
+      playlistApiUrl: '', // e.g. 'https://your-worker.example.workers.dev/playlists'
+      requestWebhookUrl: '' // Paste your webhook URL here.
+    };
+
+    const state = {
+      tracks: [], playlists: [], currentTrackId: null, openPlaylist: null,
+      pendingTrackId: null, pendingPlaylistId: null, currentArtist: null
+    };
+    const audio = document.querySelector('#audio');
+    const $ = (selector) => document.querySelector(selector);
+    const escapeHTML = (value = '') => String(value).replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#039;', '"': '&quot;' })[char]);
+    const encodeFilePath = (file) => String(file).split('/').map(encodeURIComponent).join('/');
+    let toastTimer;
+
+    function notify(message, error = false) {
+      const toast = $('#toast');
+      toast.textContent = message;
+      toast.classList.toggle('error', error);
+      toast.classList.add('visible');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.classList.remove('visible'), 3600);
+    }
+
+    function setMusicStatus(message, error = false) {
+      const status = $('#musicStatus');
+      status.textContent = message;
+      status.classList.toggle('error', error);
+    }
+
+    function parseSongFilename(file, suppliedTitle, suppliedArtist) {
+      const clean = String(file || '').replace(/^.*\//, '').replace(/\.mp3$/i, '');
+      const parts = clean.split(/\s+-\s+/);
+      return {
+        title: suppliedTitle || parts.shift() || 'Untitled song',
+        artist: suppliedArtist || parts.join(' - ') || 'Unknown artist'
+      };
+    }
+
+    function normalizeTrack(item, index) {
+      const source = typeof item === 'string' ? { file: item } : item;
+      const file = source.file || source.filename || source.name || '';
+      const details = parseSongFilename(file, source.title, source.artist);
+      return {
+        id: `track-${index}`,
+        file,
+        title: details.title,
+        artist: details.artist,
+        url: source.url || `./Music/${encodeFilePath(file)}`
+      };
+    }
+
+    function normalizePlaylist(item) {
+      const songs = Array.isArray(item.songs) ? item.songs : (Array.isArray(item.tracks) ? item.tracks : []);
+      return {
+        id: String(item.id || item.name || crypto.randomUUID()),
+        name: item.name || 'Untitled playlist',
+        description: item.description || '',
+        isPrivate: Boolean(item.isPrivate ?? item.private),
+        songs,
+        trackCount: Number.isFinite(item.trackCount) ? item.trackCount : songs.length
+      };
+    }
+
+    function githubPagesRepository() {
+      const hostParts = location.hostname.toLowerCase().split('.');
+      if (hostParts.length !== 3 || hostParts[1] !== 'github' || hostParts[2] !== 'io') return null;
+      const owner = hostParts[0];
+      const firstPathPart = location.pathname.split('/').filter(Boolean)[0];
+      return { owner, repo: firstPathPart || `${owner}.github.io` };
+    }
+
+    async function loadSongsFromManifest() {
+      const response = await fetch(CONFIG.musicManifestUrl, { cache: 'no-store' });
+      if (!response.ok) throw new Error('No music manifest');
+      const data = await response.json();
+      const songs = Array.isArray(data) ? data : (data.songs || data.tracks || []);
+      return songs.filter((song) => typeof song === 'object' || /\.mp3$/i.test(song));
+    }
+
+    async function loadSongsFromGitHubFolder() {
+      const repo = githubPagesRepository();
+      if (!repo) throw new Error('Not a public GitHub Pages URL');
+      const url = `https://api.github.com/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/contents/Music`;
+      const response = await fetch(url, { headers: { Accept: 'application/vnd.github+json' } });
+      if (!response.ok) throw new Error('GitHub could not list the Music folder');
+      const entries = await response.json();
+      if (!Array.isArray(entries)) throw new Error('Music is not a folder');
+      return entries.filter((entry) => entry.type === 'file' && /\.mp3$/i.test(entry.name)).map((entry) => ({ file: entry.name }));
+    }
+
+    async function loadTracks() {
+      let rawTracks = [];
+      let source = '';
+      try {
+        rawTracks = await loadSongsFromManifest();
+        source = 'Music manifest';
+      } catch (_) {
+        try {
+          rawTracks = await loadSongsFromGitHubFolder();
+          source = 'GitHub Music folder';
+        } catch (_) {
+          rawTracks = [];
+        }
+      }
+      state.tracks = rawTracks.map(normalizeTrack).filter((track) => track.file);
+      if (state.tracks.length) setMusicStatus(`${state.tracks.length} downloaded ${state.tracks.length === 1 ? 'song' : 'songs'} found · ${source}`);
+      else setMusicStatus('No MP3s could be listed yet. Add a Music/music.json file, or publish this from a public GitHub Pages repository.', true);
+    }
+
+    async function playlistRequest(action, payload = {}) {
+      if (!CONFIG.playlistApiUrl.trim()) throw new Error('Shared playlist saving is not set up yet. Add your playlist API URL in CONFIG first.');
+      const response = await fetch(CONFIG.playlistApiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, ...payload })
+      });
+      let data = {};
+      try { data = await response.json(); } catch (_) { /* A JSON response is preferred. */ }
+      if (!response.ok) throw new Error(data.error || 'The playlist service did not accept that request.');
+      return data;
+    }
+
+    async function loadPlaylists() {
+      try {
+        let data;
+        if (CONFIG.playlistApiUrl.trim()) data = await playlistRequest('list');
+        else {
+          const response = await fetch(CONFIG.playlistFileUrl, { cache: 'no-store' });
+          if (!response.ok) throw new Error('No playlist.json file found');
+          data = await response.json();
+        }
+        const playlists = Array.isArray(data) ? data : (data.playlists || []);
+        state.playlists = playlists.map(normalizePlaylist);
+      } catch (_) {
+        state.playlists = [];
+      }
+    }
+
+    function getTrack(trackId) { return state.tracks.find((track) => track.id === trackId); }
+    function trackRow(track) {
+      const playing = state.currentTrackId === track.id ? ' playing' : '';
+      const playIcon = state.currentTrackId === track.id && !audio.paused ? 'Ⅱ' : '▶';
+      return `<div class="song-row${playing}">
+        <button class="play-button" data-action="play-track" data-track-id="${escapeHTML(track.id)}" aria-label="Play ${escapeHTML(track.title)}">${playIcon}</button>
+        <div><div class="track-title">${escapeHTML(track.title)}</div><div class="track-subtitle">${escapeHTML(track.file)}</div></div>
+        <button class="artist-song-button" data-action="open-artist" data-artist="${escapeHTML(track.artist)}">${escapeHTML(track.artist)}</button>
+        <button class="small-button" data-action="add-song" data-track-id="${escapeHTML(track.id)}" title="Add to playlist" aria-label="Add ${escapeHTML(track.title)} to playlist">+</button>
+      </div>`;
+    }
+
+    function renderSongs(target, tracks, emptyMessage) {
+      target.innerHTML = tracks.length ? tracks.map(trackRow).join('') : `<div class="empty">${escapeHTML(emptyMessage)}</div>`;
+    }
+
+    function renderArtists() {
+      const groups = new Map();
+      state.tracks.forEach((track) => groups.set(track.artist, (groups.get(track.artist) || 0) + 1));
+      const artists = [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
+      $('#artistList').innerHTML = artists.length
+        ? artists.map(([artist, count]) => `<button class="artist-link" data-action="open-artist" data-artist="${escapeHTML(artist)}"><span>${escapeHTML(artist)}</span><span>${count}</span></button>`).join('')
+        : '<span class="status">Artists will appear once songs are found.</span>';
+    }
+
+    function renderBrowse() {
+      const term = $('#songSearch').value.trim().toLowerCase();
+      const shown = state.tracks.filter((track) => !term || `${track.title} ${track.artist}`.toLowerCase().includes(term));
+      renderSongs($('#songList'), shown, term ? 'No matching songs.' : 'Your downloaded songs will show up here.');
+    }
+
+    function showArtist(artist) {
+      state.currentArtist = artist;
+      const songs = state.tracks.filter((track) => track.artist === artist);
+      $('#artistName').textContent = artist;
+      $('#artistAvatar').textContent = artist.slice(0, 1).toUpperCase();
+      $('#artistTrackCount').textContent = `${songs.length} downloaded ${songs.length === 1 ? 'song' : 'songs'}`;
+      renderSongs($('#artistSongList'), songs, 'No songs by this artist yet.');
+      setView('artist');
+    }
+
+    function playlistSongFiles(playlist) {
+      return playlist.songs.map((song) => typeof song === 'string' ? song : (song.file || song.filename || song.name)).filter(Boolean);
+    }
+
+    function playlistTracks(playlist) {
+      const songFiles = new Set(playlistSongFiles(playlist));
+      return state.tracks.filter((track) => songFiles.has(track.file));
+    }
+
+    function renderPlaylists() {
+      const root = $('#playlistRoot');
+      if (state.openPlaylist) {
+        const playlist = state.openPlaylist;
+        const tracks = playlistTracks(playlist);
+        root.innerHTML = `<div class="playlist-detail-head">
+          <div><div class="eyebrow">${playlist.isPrivate ? 'Private playlist' : 'Public playlist'}</div><h1>${escapeHTML(playlist.name)}</h1><p class="status">${escapeHTML(playlist.description || `${playlist.trackCount} ${playlist.trackCount === 1 ? 'song' : 'songs'}`)}</p></div>
+          <div class="playlist-tools"><button class="secondary" data-action="back-playlists">← All playlists</button></div>
+        </div><div class="song-head"><span></span><span>Song</span><span>Artist</span><span></span></div><div class="song-list" id="playlistSongList"></div>`;
+        renderSongs($('#playlistSongList'), tracks, playlist.trackCount ? 'These tracks are not present in the Music folder yet.' : 'This playlist is empty.');
+        return;
+      }
+      if (!state.playlists.length) {
+        root.innerHTML = `<div class="empty" style="border:1px solid var(--line);border-radius:13px">No public playlists yet. Create the first one, or add entries to <code>playlist.json</code>.</div>`;
+        return;
+      }
+      root.innerHTML = `<div class="playlist-grid">${state.playlists.map((playlist) => {
+        const count = playlist.trackCount || playlistSongFiles(playlist).length;
+        return `<button class="playlist-card" data-action="open-playlist" data-playlist-id="${escapeHTML(playlist.id)}">
+          <div><span class="badge${playlist.isPrivate ? ' private' : ''}">${playlist.isPrivate ? '🔒 Private' : '◎ Public'}</span><h3>${escapeHTML(playlist.name)}</h3><p>${escapeHTML(playlist.description || 'A listener-made queue')}</p></div>
+          <span class="badge">${count} ${count === 1 ? 'song' : 'songs'} · Open</span>
+        </button>`;
+      }).join('')}</div>`;
+    }
+
+    function setView(view) {
+      document.querySelectorAll('.view').forEach((section) => section.classList.toggle('active', section.id === `${view}View`));
+      document.querySelectorAll('[data-view-target]').forEach((button) => button.classList.toggle('active', button.dataset.viewTarget === view));
+      if (view === 'browse') renderBrowse();
+      if (view === 'playlists') renderPlaylists();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function formatTime(value) {
+      if (!Number.isFinite(value) || value < 0) return '0:00';
+      return `${Math.floor(value / 60)}:${String(Math.floor(value % 60)).padStart(2, '0')}`;
+    }
+
+    async function playTrack(trackId) {
+      const track = getTrack(trackId);
+      if (!track) return;
+      if (state.currentTrackId === trackId && !audio.paused) { audio.pause(); return; }
+      if (state.currentTrackId !== trackId) {
+        state.currentTrackId = trackId;
+        audio.src = track.url;
+        $('#nowTitle').textContent = track.title;
+        $('#nowArtist').textContent = track.artist;
+      }
+      try { await audio.play(); } catch (_) { notify('That MP3 could not be played. Check its name and path in the Music folder.', true); }
+      renderBrowse();
+      if (state.currentArtist) showArtist(state.currentArtist);
+    }
+
+    function playAdjacent(direction) {
+      if (!state.tracks.length) return;
+      const currentIndex = Math.max(0, state.tracks.findIndex((track) => track.id === state.currentTrackId));
+      const nextIndex = (currentIndex + direction + state.tracks.length) % state.tracks.length;
+      playTrack(state.tracks[nextIndex].id);
+    }
+
+    function openDialog(id) { document.querySelector(`#${id}`).showModal(); }
+    function closeDialog(id) { document.querySelector(`#${id}`).close(); }
+
+    async function openPlaylist(playlistId) {
+      const playlist = state.playlists.find((item) => item.id === playlistId);
+      if (!playlist) return;
+      if (playlist.isPrivate) {
+        state.pendingPlaylistId = playlistId;
+        $('#unlockPlaylistName').textContent = `Enter the password for “${playlist.name}” to see it.`;
+        $('#unlockForm').reset();
+        openDialog('unlockDialog');
+      } else {
+        state.openPlaylist = playlist;
+        setView('playlists');
+      }
+    }
+
+    function renderAll() { renderArtists(); renderBrowse(); renderPlaylists(); }
+
+    document.addEventListener('click', (event) => {
+      const button = event.target.closest('button');
+      if (!button) return;
+      if (button.dataset.viewTarget) { setView(button.dataset.viewTarget); return; }
+      if (button.dataset.closeDialog) { closeDialog(button.dataset.closeDialog); return; }
+      const action = button.dataset.action;
+      if (action === 'play-track') playTrack(button.dataset.trackId);
+      if (action === 'open-artist') showArtist(button.dataset.artist);
+      if (action === 'open-playlist') openPlaylist(button.dataset.playlistId);
+      if (action === 'back-playlists') { state.openPlaylist = null; renderPlaylists(); }
+      if (action === 'add-song') {
+        if (!state.playlists.length) { notify('Create a playlist first.', true); return; }
+        state.pendingTrackId = button.dataset.trackId;
+        const track = getTrack(state.pendingTrackId);
+        $('#addSongName').textContent = `Add “${track.title}” to one of your playlists.`;
+        $('#playlistSelect').innerHTML = state.playlists.map((playlist) => `<option value="${escapeHTML(playlist.id)}">${escapeHTML(playlist.name)}${playlist.isPrivate ? ' 🔒' : ''}</option>`).join('');
+        $('#addToPlaylistForm').reset();
+        openDialog('addToPlaylistDialog');
+      }
+    });
+
+    $('#createPlaylistButton').addEventListener('click', () => { $('#playlistForm').reset(); openDialog('playlistDialog'); });
+    $('#requestSongButton').addEventListener('click', () => { $('#requestForm').reset(); openDialog('requestDialog'); });
+    $('#songSearch').addEventListener('input', renderBrowse);
+    $('#togglePlayButton').addEventListener('click', () => state.currentTrackId ? playTrack(state.currentTrackId) : playTrack(state.tracks[0]?.id));
+    $('#previousButton').addEventListener('click', () => playAdjacent(-1));
+    $('#nextButton').addEventListener('click', () => playAdjacent(1));
+    $('#volume').addEventListener('input', (event) => { audio.volume = Number(event.target.value) / 100; });
+    $('#seek').addEventListener('input', (event) => { if (Number.isFinite(audio.duration)) audio.currentTime = audio.duration * (Number(event.target.value) / 1000); });
+
+    audio.volume = .8;
+    audio.addEventListener('play', () => { $('#togglePlayButton').textContent = 'Ⅱ'; $('#togglePlayButton').title = 'Pause'; renderBrowse(); });
+    audio.addEventListener('pause', () => { $('#togglePlayButton').textContent = '▶'; $('#togglePlayButton').title = 'Play'; renderBrowse(); });
+    audio.addEventListener('timeupdate', () => { $('#elapsed').textContent = formatTime(audio.currentTime); $('#seek').value = Number.isFinite(audio.duration) ? Math.round((audio.currentTime / audio.duration) * 1000) : 0; });
+    audio.addEventListener('loadedmetadata', () => { $('#duration').textContent = formatTime(audio.duration); });
+    audio.addEventListener('ended', () => playAdjacent(1));
+    audio.addEventListener('error', () => { if (state.currentTrackId) notify('The current MP3 was not found or could not be decoded.', true); });
+
+    $('#playlistForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const form = new FormData(event.currentTarget);
+      try {
+        const result = await playlistRequest('create', {
+          name: form.get('name').trim(), description: form.get('description').trim(),
+          password: form.get('password'), isPrivate: form.get('isPrivate') === 'on'
+        });
+        if (result.playlist) state.playlists.push(normalizePlaylist(result.playlist));
+        else await loadPlaylists();
+        closeDialog('playlistDialog'); renderPlaylists(); notify('Playlist created for everyone to see.');
+      } catch (error) { notify(error.message, true); }
+    });
+
+    $('#addToPlaylistForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const form = new FormData(event.currentTarget);
+      const track = getTrack(state.pendingTrackId);
+      if (!track) return;
+      try {
+        const result = await playlistRequest('add-song', { playlistId: form.get('playlistId'), password: form.get('password'), song: track.file });
+        if (result.playlist) {
+          const updated = normalizePlaylist(result.playlist);
+          state.playlists = state.playlists.map((playlist) => playlist.id === updated.id ? updated : playlist);
+        } else await loadPlaylists();
+        closeDialog('addToPlaylistDialog'); renderPlaylists(); notify('Song added to the shared playlist.');
+      } catch (error) { notify(error.message, true); }
+    });
+
+    $('#unlockForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      try {
+        const form = new FormData(event.currentTarget);
+        const result = await playlistRequest('open', { playlistId: state.pendingPlaylistId, password: form.get('password') });
+        const playlist = normalizePlaylist(result.playlist || result);
+        state.openPlaylist = playlist;
+        closeDialog('unlockDialog'); setView('playlists');
+      } catch (error) { notify(error.message, true); }
+    });
+
+    $('#requestForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (!CONFIG.requestWebhookUrl.trim()) { notify('Add your webhook URL to CONFIG.requestWebhookUrl first.', true); return; }
+      const form = new FormData(event.currentTarget);
+      const payload = { type: 'music-request', song: form.get('song').trim(), artist: form.get('artist').trim() || null, submittedAt: new Date().toISOString() };
+      try {
+        const response = await fetch(CONFIG.requestWebhookUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        if (!response.ok) throw new Error('The webhook did not accept the request.');
+        closeDialog('requestDialog'); notify('Song request sent — thank you!');
+      } catch (error) { notify(`${error.message} The webhook must allow requests from this website.`, true); }
+    });
+
+    Promise.all([loadTracks(), loadPlaylists()]).then(renderAll);
+  </script>
+</body>
+</html>
