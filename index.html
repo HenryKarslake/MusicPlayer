@@ -228,6 +228,21 @@
     .song-row:hover, .song-row.playing { background: rgba(198,255,107,.08); }
     .track-title { overflow: hidden; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
     .track-subtitle { overflow: hidden; margin-top: 2px; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+    .playlist-song-row {
+      display: grid;
+      grid-template-columns: 37px minmax(0, 1fr) 42px;
+      align-items: center;
+      gap: 12px;
+      min-height: 68px;
+      padding: 8px 12px;
+      border-top: 1px solid var(--line);
+    }
+    .playlist-song-row:first-child {
+      border-top: 0;
+    }
+    .playlist-song-row:hover, .playlist-song-row.playing {
+      background: rgba(198,255,107,.08);
+    }
     .artist-song-button { padding: 4px 0; border: 0; color: var(--muted); text-align: left; background: transparent; }
     .artist-song-button:hover { color: var(--accent); }
     .play-button { width: 32px; height: 32px; color: var(--accent-ink); background: var(--accent); font-weight: 900; }
@@ -310,6 +325,7 @@
       .song-head { display: none; }
       .song-row { grid-template-columns: 37px minmax(0, 1fr) 34px; }
       .song-row .artist-song-button { display: none; }
+      .playlist-song-row { grid-template-columns: 37px minmax(0, 1fr) 34px; }
       .player { grid-template-columns: minmax(0, 1fr) auto; min-height: 78px; gap: 8px; padding: 8px 12px; }
       .player-center { width: auto; }
       .seek-row, .player-right { display: none; }
@@ -1358,16 +1374,69 @@
     `;
   }
 
+  function playlistTrackRow(track) {
+
+    const playing =
+      state.currentTrackId ===
+      track.id
+        ? ' playing'
+        : '';
+
+    const playIcon =
+      state.currentTrackId ===
+        track.id &&
+      !audio.paused
+        ? 'Ⅱ'
+        : '▶';
+
+
+    return `
+      <div class="song-row playlist-song-row${playing}">
+
+        <button
+          class="play-button"
+          data-action="play-track"
+          data-track-id="${escapeHTML(track.id)}"
+          aria-label="Play ${escapeHTML(track.title)}"
+        >
+          ${playIcon}
+        </button>
+
+        <div>
+          <div class="track-title">
+            ${escapeHTML(track.title)}
+          </div>
+
+          <div class="track-subtitle">
+            ${escapeHTML(track.artist)}
+          </div>
+        </div>
+
+        <button
+          class="small-button"
+          data-action="add-song"
+          data-track-id="${escapeHTML(track.id)}"
+          title="Add to playlist"
+          aria-label="Add ${escapeHTML(track.title)} to playlist"
+        >
+          +
+        </button>
+
+      </div>
+    `;
+  }
+
 
   function renderSongs(
     target,
     tracks,
-    emptyMessage
+    emptyMessage,
+    isPlaylist = false
   ) {
 
     target.innerHTML =
       tracks.length
-        ? tracks.map(trackRow).join('')
+        ? tracks.map(t => isPlaylist ? playlistTrackRow(t) : trackRow(t)).join('')
         : `
           <div class="empty">
             ${escapeHTML(emptyMessage)}
@@ -1689,7 +1758,8 @@
           ? 'These tracks are not present in the Music folder yet.'
           : tracks.length === 0
             ? 'This playlist is empty.'
-            : ''
+            : '',
+        true
       );
 
       return;
