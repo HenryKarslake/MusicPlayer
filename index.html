@@ -239,7 +239,7 @@
     .artist-title-group h1, .playlist-detail-head h1 { font-size: clamp(32px, 4vw, 51px); }
     .playlist-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
     .playlist-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(215px, 1fr)); gap: 14px; }
-    .playlist-card { min-height: 195px; display: flex; flex-direction: column; justify-content: space-between; padding: 18px; border: 1px solid var(--line); border-radius: 14px; color: var(--ink); text-align: left; background: linear-gradient(145deg, rgba(255,123,189,.15), rgba(25,29,46,.93) 52%); cursor: pointer; }
+    .playlist-card { min-height: 195px; display: flex; flex-direction: column; justify-content: space-between; padding: 18px; border: 1px solid var(--line); border-radius: 14px; color: var(--ink); text-align: left; background: linear-gradient(145deg, rgba(255,123,189,.15), rgba(25,29,46,.93) 52%); cursor: pointer; user-select: none; }
     .playlist-card:nth-child(3n+2) { background: linear-gradient(145deg, rgba(198,255,107,.16), rgba(25,29,46,.93) 52%); }
     .playlist-card:nth-child(3n) { background: linear-gradient(145deg, rgba(133,232,255,.17), rgba(25,29,46,.93) 52%); }
     .playlist-card:hover { transform: translateY(-2px); border-color: rgba(198,255,107,.55); }
@@ -1588,6 +1588,9 @@
         state.activePlaylistId ===
         playlist.id;
       
+      const shuffleState = state.activePlaylistId === playlist.id && state.playlistShuffle;
+      const loopState = state.activePlaylistId === playlist.id && state.playlistLoop;
+      
       root.innerHTML = `
         <div class="playlist-detail-head">
 
@@ -1634,41 +1637,27 @@
           }
         </button>
         
-        <button
-          class="secondary ${
-            state.activePlaylistId === playlist.id &&
-            state.playlistShuffle
-              ? 'active'
-              : ''
-          }"
-          data-action="toggle-shuffle"
-          data-playlist-id="${escapeHTML(playlist.id)}"
-        >
-          🔀 Shuffle ${
-            state.activePlaylistId === playlist.id &&
-            state.playlistShuffle
-              ? 'ON'
-              : 'OFF'
-          }
-        </button>
+        <label class="playlist-switch">
+          <input
+            type="checkbox"
+            data-action="toggle-shuffle"
+            data-playlist-id="${escapeHTML(playlist.id)}"
+            ${shuffleState ? 'checked' : ''}
+          >
+          <span class="switch-track"></span>
+          <span class="switch-label">Shuffle</span>
+        </label>
         
-        <button
-          class="secondary ${
-            state.activePlaylistId === playlist.id &&
-            state.playlistLoop
-              ? 'active'
-              : ''
-          }"
-          data-action="toggle-loop"
-          data-playlist-id="${escapeHTML(playlist.id)}"
-        >
-          🔁 Loop ${
-            state.activePlaylistId === playlist.id &&
-            state.playlistLoop
-              ? 'ON'
-              : 'OFF'
-          }
-        </button>
+        <label class="playlist-switch">
+          <input
+            type="checkbox"
+            data-action="toggle-loop"
+            data-playlist-id="${escapeHTML(playlist.id)}"
+            ${loopState ? 'checked' : ''}
+          >
+          <span class="switch-track"></span>
+          <span class="switch-label">Loop</span>
+        </label>
 
         <button
             class="secondary"
@@ -1696,9 +1685,11 @@
       renderSongs(
         $('#playlistSongList'),
         tracks,
-        playlist.trackCount
+        tracks.length === 0 && playlist.trackCount > 0
           ? 'These tracks are not present in the Music folder yet.'
-          : 'This playlist is empty.'
+          : tracks.length === 0
+            ? 'This playlist is empty.'
+            : ''
       );
 
       return;
@@ -1763,7 +1754,7 @@
               playlistSongFiles(playlist).length;
     
             return `
-              <button
+              <div
                 class="playlist-card"
                 data-action="open-playlist"
                 data-playlist-id="${escapeHTML(playlist.id)}"
@@ -1809,7 +1800,7 @@
                     }
                   </span>
 
-                  <label class="playlist-switch" style="margin: 0;">
+                  <label class="playlist-switch">
                     <input
                       type="checkbox"
                       data-action="toggle-shuffle"
@@ -1820,13 +1811,12 @@
                           ? 'checked'
                           : ''
                       }
-                      onclick="event.stopPropagation();"
                     >
                     <span class="switch-track"></span>
                     <span class="switch-label">Shuffle</span>
                   </label>
     
-                  <label class="playlist-switch" style="margin: 0;">
+                  <label class="playlist-switch">
                     <input
                       type="checkbox"
                       data-action="toggle-loop"
@@ -1837,7 +1827,6 @@
                           ? 'checked'
                           : ''
                       }
-                      onclick="event.stopPropagation();"
                     >
                     <span class="switch-track"></span>
                     <span class="switch-label">Loop</span>
@@ -1848,7 +1837,6 @@
                     class="primary"
                     data-action="play-playlist"
                     data-playlist-id="${escapeHTML(playlist.id)}"
-                    onclick="event.stopPropagation();"
                   >
                     ${
                       state.activePlaylistId === playlist.id &&
@@ -1860,13 +1848,24 @@
     
                 </div>
     
-              </button>
+              </div>
             `;
           })
           .join('')}
     
       </div>
     `;
+
+    // Add event listeners for playlist cards
+    document.querySelectorAll('[data-action="open-playlist"]').forEach(card => {
+      card.addEventListener('click', (e) => {
+        if (e.target.closest('label') || e.target.closest('button[data-action="play-playlist"]')) {
+          return;
+        }
+        const playlistId = card.dataset.playlistId;
+        openPlaylist(playlistId);
+      });
+    });
   }
 
 
@@ -2152,6 +2151,55 @@
     );
   }
 
+  function togglePlaylistShuffle(playlist, enabled) {
+    state.playlistShuffle = enabled;
+  
+    if (state.activePlaylistId !== playlist.id) {
+      renderPlaylists();
+      notify(enabled ? 'Shuffle enabled.' : 'Shuffle disabled.');
+      return;
+    }
+  
+    const currentTrack = state.playlistQueue[state.playlistQueueIndex];
+  
+    if (!currentTrack) {
+      renderPlaylists();
+      notify(enabled ? 'Shuffle enabled.' : 'Shuffle disabled.');
+      return;
+    }
+  
+    let remaining = playlistTracks(playlist).filter(
+      track => track.id !== currentTrack.id
+    );
+  
+    if (enabled) {
+      for (let i = remaining.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [remaining[i], remaining[j]] = [remaining[j], remaining[i]];
+      }
+    }
+  
+    state.playlistQueue = [currentTrack, ...remaining];
+    state.playlistQueueIndex = 0;
+  
+    renderPlaylists();
+    notify(enabled ? 'Shuffle enabled.' : 'Shuffle disabled.');
+  }
+
+  function togglePlaylistLoop(playlist, enabled) {
+    if (state.activePlaylistId !== playlist.id) {
+      state.activePlaylistId = playlist.id;
+      state.openPlaylist = playlist;
+      state.playlistQueue = playlistTracks(playlist);
+      state.playlistQueueIndex = 0;
+    }
+  
+    state.playlistLoop = enabled;
+  
+    renderPlaylists();
+    notify(enabled ? 'Playlist loop enabled.' : 'Playlist loop disabled.');
+  }
+
   /*
     ============================================================
     DIALOGS
@@ -2248,50 +2296,33 @@
   document.addEventListener(
     'change',
     (event) => {
-  
-      const input =
-        event.target.closest(
-          '.playlist-switch input'
-        );
-  
-      if (!input) {
+      const input = event.target;
+      
+      if (input.type !== 'checkbox' || !input.dataset.action) {
         return;
       }
   
-      const playlist =
-        state.playlists.find(
-          item =>
-            item.id ===
-            input.dataset.playlistId
-        );
+      if (!input.dataset.playlistId) {
+        return;
+      }
+  
+      const playlist = state.playlists.find(
+        item => item.id === input.dataset.playlistId
+      );
   
       if (!playlist) {
         return;
       }
   
-      if (
-        input.dataset.action ===
-        'toggle-shuffle'
-      ) {
+      event.stopPropagation();
   
-        togglePlaylistShuffle(
-          playlist,
-          input.checked
-        );
-  
+      if (input.dataset.action === 'toggle-shuffle') {
+        togglePlaylistShuffle(playlist, input.checked);
         return;
       }
   
-      if (
-        input.dataset.action ===
-        'toggle-loop'
-      ) {
-  
-        togglePlaylistLoop(
-          playlist,
-          input.checked
-        );
-  
+      if (input.dataset.action === 'toggle-loop') {
+        togglePlaylistLoop(playlist, input.checked);
         return;
       }
     }
@@ -2372,11 +2403,6 @@
         return;
       }
 
-
-      if (action === 'open-playlist') {
-        openPlaylist(button.dataset.playlistId);
-        return;
-      }
 
       if (action === 'open-matched-playlist') {
 
