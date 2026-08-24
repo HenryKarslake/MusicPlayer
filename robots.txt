@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://henrykarslake.github.io/MusicPlayer/sitemap.xml
