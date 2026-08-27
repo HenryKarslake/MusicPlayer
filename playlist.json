@@ -10,7 +10,7 @@
       "songs": []
     },
     {
-      "id": "creators-playlist-1787236698060",
+      "id": "creators-playlist",
       "name": "Creators Playlist",
       "description": "A playlist made by the creator (Henry) based on the songs he personally added and enjoys",
       "isPrivate": false,
@@ -21,6 +21,28 @@
         "Deja Vu - Eminem.mp3",
         "Without Me - Eminem.mp3",
         "Lose Yourself - Eminem.mp3"
+      ]
+    },
+    {
+      "id": "huhh-1787868242755",
+      "name": "Huhh",
+      "description": "",
+      "isPrivate": false,
+      "password": "Huhh",
+      "pinValue": "none",
+      "songs": [
+        "Blow My Brains Out - Tikkle Me.mp3",
+        "Not Allowed - TV Girl.mp3",
+        "Welcome To The Internet - Bo Burnham.mp3",
+        "i like the way you kiss me - Artemas.mp3",
+        "Earrings - Malcolm Todd.mp3",
+        "Chicago - Michael Jackson.mp3",
+        "Washing Machine Heart - Mitski.mp3",
+        "Gnarly - KATSEYE.mp3",
+        "Poker Face - Lady Gaga.mp3",
+        "Paparazzi - Lady Gaga.mp3",
+        "Judas - Lady Gaga.mp3",
+        "Bad Romance - Lady Gaga.mp3"
       ]
     }
   ]
