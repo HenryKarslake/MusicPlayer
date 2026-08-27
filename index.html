@@ -722,43 +722,6 @@
   </dialog>
 
   <script>
-  /*
-    ============================================================
-    CONFIGURATION
-    ============================================================
-
-    Folder structure:
-
-    index.html
-    playlist.json
-
-    Music/
-      music.json
-      Song - Artist.mp3
-      Another Song - Artist.mp3
-
-    playlist.json example:
-
-    {
-      "playlists": [
-        {
-          "id": "late-night-123456",
-          "name": "Late Night",
-          "description": "Songs for late nights",
-          "isPrivate": true,
-          "password": "mypassword",
-          "songs": [
-            "Song - Artist.mp3"
-          ]
-        }
-      ]
-    }
-
-    IMPORTANT:
-    Passwords are intentionally stored in plaintext because this
-    is being used as a simple static project. This is NOT secure.
-  */
-
   const CONFIG = {
     musicManifestUrl: './Music/music.json',
     playlistFileUrl: './playlist.json',
@@ -768,12 +731,6 @@
 
     requestWebhookUrl: 'https://discord.com/api/webhooks/1539874543374696540/zZN0MnBzuBd_6x6m7nRZWuFvPtrYckqjAqS5XXvUGz2m_qN_H-5VtYCdFEzgPu4F46sk'
   };
-
-  /*
-    ============================================================
-    STATE
-    ============================================================
-  */
 
   const state = {
     tracks: [],
@@ -792,24 +749,12 @@
     loopCurrentSong: false
   };
 
-  /*
-    ============================================================
-    DOM HELPERS
-    ============================================================
-  */
-
   const audio = document.querySelector('#audio');
   const video = document.querySelector('#video');
 
   const $ = (selector) => document.querySelector(selector);
 
   let toastTimer;
-
-  /*
-    ============================================================
-    GENERAL HELPERS
-    ============================================================
-  */
 
   const escapeHTML = (value = '') =>
     String(value).replace(
