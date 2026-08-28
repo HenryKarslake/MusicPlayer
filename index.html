@@ -390,6 +390,7 @@
       .transport { gap: 2px; }
       .transport .icon-button:first-child { display: none; }
       .artist-header, .playlist-detail-head { align-items: flex-start; flex-direction: column; }
+      .playlist-tools { flex-direction: column; align-items: flex-start; width: 100%; }
     }
   </style>
 </head>
@@ -487,7 +488,38 @@
               <div class="artist-avatar" id="artistAvatar">A</div>
               <div><div class="eyebrow">Artist profile</div><h1 id="artistName">Artist</h1><p id="artistTrackCount" class="status"></p></div>
             </div>
-            <button class="secondary" data-view-target="browse">← All songs</button>
+            
+            <div class="playlist-tools">
+              <button
+                class="primary"
+                data-action="play-artist"
+                id="playArtistButton"
+              >
+                ▶ Play
+              </button>
+              
+              <label class="playlist-switch">
+                <input
+                  type="checkbox"
+                  data-action="toggle-artist-shuffle"
+                  id="artistShuffleToggle"
+                >
+                <span class="switch-track"></span>
+                <span class="switch-label">Shuffle</span>
+              </label>
+              
+              <label class="playlist-switch">
+                <input
+                  type="checkbox"
+                  data-action="toggle-artist-loop"
+                  id="artistLoopToggle"
+                >
+                <span class="switch-track"></span>
+                <span class="switch-label">Loop</span>
+              </label>
+
+              <button class="secondary" data-view-target="browse">← All songs</button>
+            </div>
           </div>
           <div id="artistSongList" class="song-list"></div>
         </section>
@@ -746,7 +778,11 @@
     pendingPlaylistId: null,
     currentArtist: null,
     videoMode: false,
-    loopCurrentSong: false
+    loopCurrentSong: false,
+    artistQueue: [],
+    artistQueueIndex: 0,
+    activeArtistShuffle: false,
+    activeArtistLoop: false
   };
 
   const audio = document.querySelector('#audio');
@@ -1539,8 +1575,21 @@
     renderSongs(
       $('#artistSongList'),
       songs,
-      'No songs by this artist yet.'
+      'No songs by this artist yet.',
+      true
     );
+
+    // Update button state
+    const isPlayingArtist = state.activePlaylistId === `artist-${artist}`;
+    const button = $('#playArtistButton');
+    if (isPlayingArtist && !audio.paused) {
+      button.textContent = 'Ⅱ Pause';
+    } else {
+      button.textContent = '▶ Play';
+    }
+
+    $('#artistShuffleToggle').checked = state.activeArtistShuffle && isPlayingArtist;
+    $('#artistLoopToggle').checked = state.activeArtistLoop && isPlayingArtist;
 
     setView('artist');
   }
@@ -2067,6 +2116,92 @@
     renderPlaylists();
   }
 
+  function startArtist(artist, shuffle = false) {
+
+    const tracks = state.tracks.filter(
+      (track) => track.artist === artist
+    );
+
+    if (!tracks.length) {
+      notify(
+        'This artist has no songs available.',
+        true
+      );
+      return;
+    }
+
+    state.activePlaylistId = `artist-${artist}`;
+    state.artistQueue = [...tracks];
+    state.activeArtistShuffle = shuffle;
+    state.activeArtistLoop = false;
+
+    if (shuffle) {
+      for (
+        let i = state.artistQueue.length - 1;
+        i > 0;
+        i--
+      ) {
+        const j =
+          Math.floor(
+            Math.random() * (i + 1)
+          );
+
+        [
+          state.artistQueue[i],
+          state.artistQueue[j]
+        ] = [
+          state.artistQueue[j],
+          state.artistQueue[i]
+        ];
+      }
+    }
+
+    state.artistQueueIndex = 0;
+
+    playTrack(
+      state.artistQueue[0].id
+    );
+
+    showArtist(artist);
+  }
+
+  function playNextArtistSong() {
+
+    if (!state.artistQueue.length) {
+      return;
+    }
+
+    if (
+      state.artistQueueIndex >=
+      state.artistQueue.length - 1
+    ) {
+
+      if (state.activeArtistLoop) {
+
+        state.artistQueueIndex = 0;
+
+        playTrack(
+          state.artistQueue[0].id
+        );
+
+        return;
+      }
+
+      state.artistQueue = [];
+      state.activePlaylistId = null;
+
+      return;
+    }
+
+    state.artistQueueIndex++;
+
+    playTrack(
+      state.artistQueue[
+        state.artistQueueIndex
+      ].id
+    );
+  }
+
   function playNextPlaylistSong() {
   
     if (!state.playlistQueue.length) {
@@ -2155,6 +2290,54 @@
     notify(enabled ? 'Playlist loop enabled.' : 'Playlist loop disabled.');
   }
 
+  function toggleArtistShuffle(artist, enabled) {
+    state.activeArtistShuffle = enabled;
+    const artistId = `artist-${artist}`;
+
+    if (state.activePlaylistId !== artistId) {
+      notify(enabled ? 'Shuffle enabled.' : 'Shuffle disabled.');
+      return;
+    }
+
+    const currentTrack = state.artistQueue[state.artistQueueIndex];
+
+    if (!currentTrack) {
+      notify(enabled ? 'Shuffle enabled.' : 'Shuffle disabled.');
+      return;
+    }
+
+    let remaining = state.tracks
+      .filter(track => track.artist === artist && track.id !== currentTrack.id);
+
+    if (enabled) {
+      for (let i = remaining.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [remaining[i], remaining[j]] = [remaining[j], remaining[i]];
+      }
+    }
+
+    state.artistQueue = [currentTrack, ...remaining];
+    state.artistQueueIndex = 0;
+
+    showArtist(artist);
+    notify(enabled ? 'Shuffle enabled.' : 'Shuffle disabled.');
+  }
+
+  function toggleArtistLoop(artist, enabled) {
+    const artistId = `artist-${artist}`;
+
+    if (state.activePlaylistId !== artistId) {
+      state.activePlaylistId = artistId;
+      state.artistQueue = state.tracks.filter(track => track.artist === artist);
+      state.artistQueueIndex = 0;
+    }
+
+    state.activeArtistLoop = enabled;
+
+    showArtist(artist);
+    notify(enabled ? 'Artist loop enabled.' : 'Artist loop disabled.');
+  }
+
   function openDialog(id) {
     document
       .querySelector(`#${id}`)
@@ -2221,6 +2404,16 @@
       const input = event.target;
       
       if (input.type !== 'checkbox' || !input.dataset.action) {
+        return;
+      }
+  
+      if (input.dataset.action === 'toggle-artist-shuffle') {
+        toggleArtistShuffle(state.currentArtist, input.checked);
+        return;
+      }
+
+      if (input.dataset.action === 'toggle-artist-loop') {
+        toggleArtistLoop(state.currentArtist, input.checked);
         return;
       }
   
@@ -2305,6 +2498,41 @@
 
         playTrack(
           button.dataset.trackId
+        );
+
+        return;
+      }
+
+      if (action === 'play-artist') {
+
+        if (!state.currentArtist) {
+          return;
+        }
+
+        const artistId = `artist-${state.currentArtist}`;
+
+        if (
+          state.activePlaylistId === artistId &&
+          state.artistQueue.length
+        ) {
+
+          if (audio.paused) {
+
+            audio.play();
+
+          } else {
+
+            audio.pause();
+          }
+
+          showArtist(state.currentArtist);
+
+          return;
+        }
+
+        startArtist(
+          state.currentArtist,
+          state.activeArtistShuffle
         );
 
         return;
@@ -2677,7 +2905,7 @@
     $('#duration').textContent = formatTime(video.duration);
   });
 
-  video.addEventListener('ended', () => playAdjacent(1));
+  video.addEventListener('ended', () => playNextArtistSong());
 
   video.addEventListener('error', () => {
     if (state.currentTrackId && state.videoMode) {
@@ -2736,6 +2964,11 @@
 
       if (state.playlistQueue.length) {
         playNextPlaylistSong();
+        return;
+      }
+
+      if (state.artistQueue.length) {
+        playNextArtistSong();
         return;
       }
 
